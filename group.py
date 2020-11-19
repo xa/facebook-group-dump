@@ -1,13 +1,19 @@
 import requests, json, os, traceback, time, datetime, sys, random
 
-SUFFIX = "_group"
-groupid = "PASTE YOUR GROUPID HERE"
+SUFFIX = "_dump"; groupid = "*group id here*"
 
 TOKENS = []
 
 TOKENS.append(open("cookie/token.log").read().strip())
-#TOKENS.append(open("cookie/token_2.log").read().strip()) #multi token support
+#TOKENS.append(open("cookie/token_2.log").read().strip())
 #TOKENS.append(open("cookie/token_3.log").read().strip())
+
+def hms(sc):
+	seconds = int(sc)
+	minutes, seconds = divmod(seconds, 60)
+	hours, minutes = divmod(minutes, 60)
+
+	return "{h:02d}:{m:02d}:{s:02d}".format(h=hours, m=minutes, s=seconds)
 
 def get_token():
 	return random.choice(TOKENS)
@@ -55,9 +61,7 @@ def find_url_media(mediaobj):
 				url = obj["src"]
 	return url
 
-def get_medias(postid):
-	obj = tojson(requests.get("https://graph.facebook.com/v8.0/"+postid+"/attachments?fields=&access_token="+get_token()))
-	print(obj)
+def parse_medias(obj):
 	data = obj["data"]
 	urls = []
 	for i in data:
@@ -67,7 +71,15 @@ def get_medias(postid):
 			for j in i["subattachments"]["data"]:
 				if "media" in j:			
 					urls.append(find_url_media(j["media"]))
-	return uniq_urls(urls)
+	return urls
+
+def get_medias(postid):
+	obj = tojson(requests.get("https://graph.facebook.com/v8.0/"+postid+"/attachments?fields=&access_token="+get_token()))
+	print("    "+str(obj))
+	if "The action attempted has been deemed abusive or is otherwise disallowed" in str(obj):
+		print("    get_medias() rate limit")
+		os._exit(0)
+	return uniq_urls(parse_medias(obj))
 
 def clean_reactions(obj):
 	reactions = {}
@@ -101,7 +113,6 @@ def clean_comments(obj):
 	return clean[:3], count
 	
 def get_comments(url, comments):
-	print("    Getting comments... "+str(len(comments)))
 	obj = tojson(requests.get(url))
 	
 	if not "data" in obj:
@@ -109,11 +120,10 @@ def get_comments(url, comments):
 		0/0
 		return comments
 		
-	time.sleep(3)
 #	print(obj)
 	for com in obj["data"]:
 		com["reactions"] = clean_reactions(com)
-		if "attachment" in com:
+		if "attachment" in com and "media" in com["attachment"]:
 			com["attachment"] = find_url_media(com["attachment"]["media"])
 			if "." in com["attachment"]:
 				save_urls(com["attachment"], "dump"+SUFFIX+"/medias/")
@@ -121,73 +131,99 @@ def get_comments(url, comments):
 				com["attachment"] = ""
 		comments.append(com)
 	
+	print("    Got comments! "+str(len(comments)))	
+	
 	if "paging" in obj and "next" in obj["paging"]:
 		url = obj["paging"]["next"]
+		time.sleep(3)
 		get_comments(url, comments)
 		
 	return comments
 
 def scrape_post(postid, only_comments):
-	fields = "created_time,id,message,story,from,type,link,"+REACTIONS+",comments.limit(0).summary(total_count).as(comments)"
-
+	fields = "created_time,id,message,story,attachments,from,type,link,"+REACTIONS+",comments.limit(0).summary(total_count).as(comments)"
 	shret = False
-
+	should_get_comments = True
+	
 	if not only_comments:
 		print("    Getting post info... ")
 		obj = tojson(requests.get("https://graph.facebook.com/v8.0/"+postid+"?fields="+fields+"&access_token="+get_token()))
-		obj["medias"] = get_medias(postid)
-		save_urls(obj["medias"], "dump"+SUFFIX+"/medias/")
-		obj["medias"] = clean_medias(obj)
-		if len(obj["medias"]) == 0: del obj["medias"]
+		
+		if not "created_time" in obj:
+			print(obj)
+			print("Rate limit (?)")
+			#os._exit(0)
+			return
+		
+		#print(obj)
+		#obj["medias"] = get_medias(postid)
+		if "attachments" in obj:
+			obj["medias"] = uniq_urls(parse_medias(obj["attachments"]))
+			save_urls(obj["medias"], "dump"+SUFFIX+"/medias/")
+			obj["medias"] = clean_medias(obj)
+			print("    "+str(obj["medias"]))
+			del obj["attachments"]
+			if len(obj["medias"]) == 0: del obj["medias"]
 		obj["reactions"] = clean_reactions(obj)
 		comments, count = clean_comments(obj)
 		obj["comments"] = comments
 		obj["comments_count"] = count
 		if len(obj["comments"]) == 0: del obj["comments"]
-		date = obj["created_time"].split("T")[0]
-		print("    "+date)
 		
+		if obj["comments_count"] == 0:
+			should_get_comments = False
+		name = "Unknown"
+		if "from" in obj:
+			name = obj["from"]["name"]
+		else:
+			obj["from"] = {"name": name}
+			
+		date = obj["created_time"].split("T")[0]
+
+		if "message" in obj:
+			print("    "+name+": "+obj["message"]) 			
+		print("    "+date)		
+		#print(obj)
+		#os._exit(0)
+				
 		try:
 			os.makedirs("dump"+SUFFIX+"/json/"+date)
 			open("dump"+SUFFIX+"/json/dates.txt", "a+").write(date+"\n")
 		except:
 			pass
 
-		name = "Unknown"
-		if "from" in obj:
-			name = obj["from"]["name"]
-		else:
-			obj["from"] = {"name": name}
-
 		open("dump"+SUFFIX+"/json/"+date+"/"+postid+".json", "w+").write(json.dumps(obj))
 		open("dump"+SUFFIX+"/json/"+date+"/posts.txt", "a+").write(postid+","+name+","+obj["created_time"]+"\n")
-		shret = True
+		shret = True	
 	else:
 		date = duplicate_posts[postid]
 
-	try:
-		comments = []
-		get_comments("https://graph.facebook.com/v8.0/"+postid+"/comments?fields=created_time,from,message,attachment,media,id,"+REACTIONS+",parent{id}&access_token="+get_token(), comments)
-		comments_final = []
+	if should_get_comments:
+		try:
+			comments = []
+			get_comments("https://graph.facebook.com/v8.0/"+postid+"/comments?fields=created_time,from,message,attachment,media,id,"+REACTIONS+",parent{id}&limit=2000&access_token="+get_token(), comments)
+			comments_final = []
 
-		for com in comments:
-			if not "parent" in com:
-				comments_final.append(com)
+			for com in comments:
+				if not "parent" in com:
+					comments_final.append(com)
 
-		for com in comments:
-			if "parent" in com:
-				for parent in comments_final:
-					if parent["id"] == com["parent"]["id"]:
-						if not "children" in parent:
-							parent["children"] = []
-						parent["children"].append(without_keys(com, {"parent"}))
-		open("dump"+SUFFIX+"/json/"+date+"/"+postid+"_comments.json", "w+").write(json.dumps(comments_final))
-	except KeyboardInterrupt:
-		os._exit(0)
-	except:
-#		print(traceback.format_exc())		
-		print("    Error while getting comments!")
-		return shret
+			for com in comments:
+				if "parent" in com:
+					for parent in comments_final:
+						if parent["id"] == com["parent"]["id"]:
+							if not "children" in parent:
+								parent["children"] = []
+							parent["children"].append(without_keys(com, {"parent"}))
+			open("dump"+SUFFIX+"/json/"+date+"/"+postid+"_comments.json", "w+").write(json.dumps(comments_final))
+		except KeyboardInterrupt:
+			os._exit(0)
+		except:
+			#print(traceback.format_exc())		
+			print("    Error while getting comments!")
+			return shret
+	else:
+		open("dump"+SUFFIX+"/json/"+date+"/"+postid+"_comments.json", "w+").write("")
 		
 	return True
 				
@@ -258,7 +294,7 @@ if len(sys.argv) == 2:
 		reload_posts = True
 
 if reload_posts:
-	url = "https://graph.facebook.com/v8.0/"+groupid+"?fields=feed.order(chronological)&access_token="+get_token()
+	url = "https://graph.facebook.com/v8.0/"+groupid+"?fields=feed.order(chronological)&limit=200&access_token="+get_token()
 	if os.path.exists("dump"+SUFFIX+"/stopped_at.txt"):
 		url = open("dump"+SUFFIX+"/stopped_at.txt").read().strip()
 		print("Continuing...")
@@ -294,13 +330,16 @@ donpr = 0
 starttime = datetime.datetime.now()
 postidslen = len(postids)
 
+dont_check_comment_dupe = False
+dont_check_comment_dupe = False
+
 for postid in postids:
 	donpr += 1
 	try:		
 		if "_" not in postid: continue
 		if postid in duplicate_posts:
 			comments_exists = os.path.exists("dump"+SUFFIX+"/json/"+duplicate_posts[postid]+"/"+postid+"_comments.json")		
-			if comments_exists:
+			if comments_exists or dont_check_comment_dupe:
 				print("["+str(donpr)+"/"+str(len(postids))+"] duplicate "+postid)		
 				postidslen -= 1
 				continue
@@ -313,11 +352,11 @@ for postid in postids:
 			print("\n["+str(donpr)+"/"+str(len(postids))+"] scraping "+postid)
 		
 		slp = scrape_post(postid, postid in duplicate_posts)
-		if slp: time.sleep(15)
+		if slp: time.sleep(2)
 		dur = datetime.datetime.now()-starttime
 		eta = int((dur.seconds / float(don)) * float(postidslen - don))   
-		print("  duration: "+time.strftime("%H:%M:%S", time.gmtime(dur.seconds)))
-		print("  eta: " + time.strftime("%H:%M:%S", time.gmtime(eta)))		
+		print("  duration: "+hms(dur.seconds))
+		print("  eta: " + hms(eta))		
 	except SystemExit:
 		os._exit(0)
 	except KeyboardInterrupt:
