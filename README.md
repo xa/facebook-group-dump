@@ -1,13 +1,17 @@
 # facebook-group-dump
 
-Tool for dumping all posts from facebook group
+Tool for dumping posts from Facebook groups
 
-needs python 3 and requests module
+Requires Python 3.8+ with requests installed
 
 **Usage:**
 
-edit groupid in dump.py (will make config later)
+Login into mbasic.facebook.com
 
-python3 login.py
+Change Facebook language to Polish. (required, POLSKA GUROM)
 
-python3 group.py 
+Put cookies and headers from browser into account.py (copy curl from dev tools and convert into python with curlconverter.com)
+
+Run python3 dump.py <group id> <saved path>
+
+** WARNING! Contains extremly scuffed code, because Facebook closed all json apis **

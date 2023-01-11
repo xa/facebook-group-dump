@@ -1,6 +1,6 @@
 import requests, json, os, traceback, time, datetime, sys, random
 
-SUFFIX = "_dump"; groupid = "*group id here*"
+SUFFIX = "fury_dump"; groupid = "463331507506951"
 
 TOKENS = []
 
@@ -234,6 +234,7 @@ def get_post_ids(url, done):
 	oldkey = url.split("access_token=")[1].split("&")[0]
 	url = url.replace(oldkey, get_token())
 	try:
+		print(url)
 		obj = tojson(requests.get(url))
 		obj_ = obj
 		postids = []
