@@ -207,10 +207,14 @@ def	parse_element(element, nowtime):
 
 	full_name = element.split("<strong>")[1].split("</strong>")[0].replace("<span>", "").replace("</span>", "").replace("<wbr />", "").replace('<span class="word_break">', "")
 	full_name = full_name.split(">")[1].split("<")[0]
+	if len(full_name) <= 1:
+		print_warning("Full_name fallback.")
+		full_name = element.split("</a></strong>")[0].split(">")[-1].replace("<span>", "").replace("</span>", "").replace("<wbr />", "").replace('<span class="word_break">', "")
 	full_name = full_name.replace("&#039;", "'")
 	if len(full_name) <= 1:
 		print_debug(element)
-		print_error("Empty full_name " + full_name)
+		print_warning("Empty full_name " + full_name)
+		full_name = element.split("</a></strong>")[-1].split(">")[1]
 		exit()
 	print()
 	print_info(color(full_name + " " + timestamp_clean, colors.YELLOW) + " (" + post_id + ")")
