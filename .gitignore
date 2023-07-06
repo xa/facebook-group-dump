@@ -4,3 +4,9 @@ __pycache__
 dump_*
 test.py
 __pycache__
+comments.py
+fix_html.py
+geckodriver.log
+page*
+page/*
+shot.png

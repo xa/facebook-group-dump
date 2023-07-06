@@ -1,19 +1,37 @@
-
-
 import requests, html, json, sys, io, time, re, math, os, traceback
 from datetime import datetime
 from urllib.parse import unquote
 from colors import *
-from account import *
-import print_image
+
+#todo check groupid mismatch and accept finding out of groupid
+
+def set_windows_title(s):
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleTitleW(s)
+    except:
+        pass
+        
+class ParseException(Exception):
+    pass
 
 try:
 	GROUP_ID = sys.argv[1]
-	DIRECTORY = sys.argv[2]+"/"
+	DIRECTORY = sys.argv[3]+"/"
+
+	try:
+		account_name = sys.argv[2].replace(".py", "")
+		account = __import__(account_name, globals(), locals(), ['headers', 'cookies'], 0)
+
+		headers = account.headers
+		cookies = account.cookies
+	except:
+		traceback.print_exc()
+		raise ValueError()
 except:
 	print()
-	print_info("Usage: python3 "+sys.argv[0]+" <group id> <save to>")
-	print_info("Example: python3 "+sys.argv[0]+" 4633413245961 dump_fav_group")	
+	print_info("Usage: python3 "+sys.argv[0]+" <group id> <account> <save to>")
+	print_info("Example: python3 "+sys.argv[0]+" 6351613231561 account.py dump_fav_group")
 	print()
 	exit()
 
@@ -79,6 +97,7 @@ def reconstruct_reactions(element):
 	#4 reakcje, w tym Trzymaj się, Lubię to! i Super
 	#1 reakcja, w tym Wow
 	fixed = element.replace("reakcje", "reakcji").replace("reakcja", "reakcji")
+    
 	try:
 		reactions_count = int(fixed.split(" reakcji, w tym")[0].split('aria-label="')[1])
 	except:
@@ -108,6 +127,7 @@ def reconstruct_reactions(element):
 	print_debug(reactions_list)	
 
 	ret = {"like": 0, "love": 0, "wow": 0, "haha": 0, "sad": 0, "anger": 0, "care": 0}
+    
 	if len(reactions_list) == 1:
 		ret[reactions_list[0]] = reactions_count 
 	if len(reactions_list) == 2:
@@ -117,7 +137,7 @@ def reconstruct_reactions(element):
 		ret[reactions_list[0]] = math.floor(reactions_count*0.65)
 		ret[reactions_list[1]] = math.ceil(reactions_count*0.25)
 		ret[reactions_list[2]] = math.ceil(reactions_count*0.10)
-
+	
 	while True:
 		total_reactions = 0
 		for k, v in ret.items():
@@ -131,24 +151,66 @@ def reconstruct_reactions(element):
 
 	return ret
 
-def	parse_element(element):
+saved_posts = []
+
+def	parse_element(element, nowtime):
+	global saved_posts
 	data = json.loads(html.unescape(element.split(' data-ft="')[1].split('"')[0]))
+	#print(element)
 	from_id = data["actrs"]
 	post_id = data["top_level_post_id"]
-	if "page_insights" not in data:
-		return
-	timestamp = data["page_insights"][GROUP_ID]["post_context"]["publish_time"]
+	real_date = False
+	if "page_insights" in data:	
+		timestamp = data["page_insights"][GROUP_ID]["post_context"]["publish_time"]
+		real_date = True
+	else:
+		timestamp = 0
+
 	ts = datetime.fromtimestamp(int(timestamp))
 	date_clean = ts.strftime("%Y-%m-%d")
 	timestamp_clean = ts.strftime("%Y-%m-%d %H:%M:%S")
 
 	json_path = DIRECTORY+"json/"+date_clean+"/"+post_id+".json"
-	if os.path.exists(json_path):
+	json_path_2 = DIRECTORY+"json/"+date_clean+"/"+GROUP_ID+"_"+post_id+".json"
+	
+	if post_id in saved_posts:
 		print_info("Post "+post_id+" was already saved.")
 		return False
 
-	full_name = element.split("<strong>")[1].split("</strong>")[0]
+	if os.path.exists(json_path) or os.path.exists(json_path_2) or post_id in saved_posts:
+		json_obj = {}
+		if os.path.exists(json_path):
+			f = open(json_path, "r")
+			json_obj = json.loads(f.read())
+		if os.path.exists(json_path_2):
+			f = open(json_path, "r")
+			json_obj = json.loads(f.read())
+
+		if "comments_count" in json_obj:
+			total = 0
+			for k, v in json_obj["reactions"].items():
+				total += v
+			comments = json_obj["comments_count"]
+			if total == 0 and comments == 0:
+				print()
+				print_warning(color("Post "+post_id+" is saved but has no reaction data. Resaving.", colors.YELLOW))
+			else:
+				saved_posts.append(post_id)
+				print_info("Post "+post_id+" was already saved and contains all data.")
+				return False
+
+	if not real_date:
+		print_error("Mo page insights in data, "+post_id)
+		if not (len(sys.argv) > 4 and sys.argv[4] == "skip"):
+			raise ParseException()
+
+	full_name = element.split("<strong>")[1].split("</strong>")[0].replace("<span>", "").replace("</span>", "").replace("<wbr />", "").replace('<span class="word_break">', "")
 	full_name = full_name.split(">")[1].split("<")[0]
+	full_name = full_name.replace("&#039;", "'")
+	if len(full_name) <= 1:
+		print_debug(element)
+		print_error("Empty full_name " + full_name)
+		exit()
 	print()
 	print_info(color(full_name + " " + timestamp_clean, colors.YELLOW) + " (" + post_id + ")")
 
@@ -163,7 +225,7 @@ def	parse_element(element):
 	#print(data)
 
 	post_type = data.get("story_attachment_style", "status")
-
+	
 	link = ""
 	if "udostępnił" in element and 'href="/story.php?' in element:
 		link = "https://mbasic.facebook.com/story.php?" + element.split('href="/story.php?')[1].split('">')[0]
@@ -176,7 +238,7 @@ def	parse_element(element):
 		result = save_photo(data["photo_id"])
 		if result != None:
 			medias.append(result)
-	elif post_type == "album" or post_type == "new_album" or post_type == "commerce_product_item":
+	elif post_type in ["album", "new_album"]:
 		arr = []
 		if "photo_attachments_list" in data:
 			arr = data["photo_attachments_list"]
@@ -189,7 +251,7 @@ def	parse_element(element):
 			result = save_photo(photo)
 			if result != None:
 				medias.append(result)
-	elif post_type == "video_inline" or post_type == "animated_image_video":
+	elif post_type in [post_type == "video", "video_inline", "animated_image_video"]:
 		#print(data)
 		video_url = element.split('href="/video_redirect/?src=')[1].split('"')[0]
 		video_url = html.unescape(video_url)
@@ -197,13 +259,9 @@ def	parse_element(element):
 		result = save_video(video_url)
 		if result != None:
 			medias.append(result)
-	elif post_type == "status" or post_type == "fundraiser_for_story" or post_type == "fun_fact_stack" or post_type == "og_composer_simple" or post_type == "minutiae_event" or post_type == "image_share" or post_type == "group_sell_product_item" or post_type == "fundraiser_person_to_charity" or post_type == "group_welcome_post" or post_type == "meet_up_event":
+	elif post_type in ["looking_for_players", "commerce_product_item", "status", "fun_fact_stack", "minutiae_event", "image_share", "group_sell_product_item", "fundraiser_person_to_charity", "group_welcome_post", "meet_up_event"]:
 		pass
-	elif post_type == "file_upload":
-		print_warning("file_upload dumping is not implemented yet")
-		with open(DIRECTORY+"not_dumped_files.txt", "a+", encoding='utf-8') as f:
-			f.write(post_id+"\n") 
-	elif post_type == "event" or post_type == "photo_link_share" or post_type == "file_upload" or post_type == "pages_share" or post_type == "share" or post_type == "avatar" or post_type == "messenger_generic_template" or post_type == "music_aggregation" or post_type == "map" or post_type == "animated_image_share":
+	elif post_type in ["event", "file_upload", "pages_share", "share", "avatar", "messenger_generic_template", "music_aggregation", "map", "animated_image_share"]:
 		print_info("Shared link: "+link+" ("+post_type+")")
 	elif post_type == "native_templates":
 		message += " <Shared deleted post.>"
@@ -218,11 +276,17 @@ def	parse_element(element):
 		print_error(post_id)
 		exit()
 
+	if post_type == "file_upload":
+		print_warning("File upload dumping is not implemented yet.")
+		with open(DIRECTORY+"not_dumped_files.txt", "a+", encoding='utf-8') as f:
+			f.write(post_id+"\n") 
+	
 	comments_count = 0
 	if ">1 komentarz" in element:
 		comments_count = 1
 	if ">Liczba komentarzy: " in element:
 		comments_count = int(element.split(">Liczba komentarzy: ")[1].split("<")[0])
+
 	#"2021-01-08T11:46:46+0000"
 	created_time = ts.strftime("%Y-%m-%dT%H:%M:%S")+"+0100" 
 
@@ -230,7 +294,10 @@ def	parse_element(element):
 		print("    "+l)
 	#print(post_type)
 
+	reactions = reconstruct_reactions(element)
+
 	obj = {
+		"timestamp": str(timestamp),
 		"created_time": created_time,
 		"id": post_id,
 		"message": message,
@@ -241,9 +308,11 @@ def	parse_element(element):
 		"type": post_type,
 		"link:": link,
 		"medias": medias,
-		"reactions": reconstruct_reactions(element),
+		"reactions": reactions,
 		"comments_count": comments_count,
 	}
+    
+	print_info(reactions)
 	print_debug(json.dumps(obj))
 
 	os.makedirs(DIRECTORY+"json/"+date_clean, exist_ok=True)
@@ -262,9 +331,11 @@ def	parse_element(element):
 		#print(line)
 		f.write(line)
 
+	saved_posts.append(post_id)
+
 	return obj
 
-def parse(content):
+def parse(content, nowtime):
 	arr = content.split("</article>")
 	if len(arr) <= 2:
 		print_error("No posts in response")
@@ -273,16 +344,12 @@ def parse(content):
 	for a in arr:
 		if "<article " in a:
 			element = a.split("<article ")[1]
-			ret = parse_element(element)
+			ret = parse_element(element, nowtime)
 			if ret != False:
 				all_skipped = False
 	return all_skipped
 
 if __name__ == "__main__":
-	try:
-		print_image.print_url("https://i.imgur.com/z9tYGsn.png", scale=2.5)
-	except: pass
-
 	os.makedirs(DIRECTORY+"json", exist_ok=True)
 	os.makedirs(DIRECTORY+"medias", exist_ok=True)
 
@@ -293,8 +360,19 @@ if __name__ == "__main__":
 	nowtime = int(time.time())
 	nowts_formatted = datetime.fromtimestamp(nowtime).strftime("%Y-%m-%d %H:%M:%S") 
 	print_ok("Started at "+nowts_formatted)
+    
+	group_name = DIRECTORY
+	if group_name.endswith("/"):
+		group_name = group_name[:-1]
+		group_name = group_name.split("/")[-1]
+
+	set_windows_title("Dumping group " + group_name + ", account " + account_name + ", started at " + nowts_formatted)
 
 	saved_timestamp_path = DIRECTORY+"stopped_at.txt"
+	saved_group_id_path = DIRECTORY+"group_id.txt"
+
+	with open(saved_group_id_path, "w+") as f:
+		f.write(GROUP_ID)
 
 	if os.path.exists(saved_timestamp_path):
 		with open(saved_timestamp_path) as f:
@@ -308,8 +386,17 @@ if __name__ == "__main__":
 			#time.sleep(0.5)
 			print()
 			print_info(color("Dumping posts from "+formatted_ts, colors.GREEN)+", "+fromts)
-			response = requests.get('https://mbasic.facebook.com/groups/'+GROUP_ID+'?bacr='+fromts+'%3A951077175399046%3A951077175399046%2C0%2C3%3A7%3AQWE9PSs%3D', cookies=cookies, headers=headers)
-			all_skipped = parse(response.content.decode())
+			while True:
+				try:
+					url = ('https://mbasic.facebook.com/groups/'+GROUP_ID+'?bacr='+str(nowtime)+'%3A951077175399046%3A951077175399046%2C0%2C3%3A7%3AQWE9PSs%3D')
+#					print(url)
+					response = requests.get('https://mbasic.facebook.com/groups/'+GROUP_ID+'?bacr='+str(nowtime)+'%3A951077175399046%3A951077175399046%2C0%2C3%3A7%3AQWE9PSs%3D', cookies=cookies, headers=headers)
+					all_skipped = parse(response.content.decode(), nowtime)
+					break
+				except ParseException as e:
+					nowtime += 180
+					print_error("Parse exception, retry")
+					time.sleep(10)
 			if all_skipped:
 				nowtime -= 15 * 60;
 			else:
