@@ -174,7 +174,7 @@ def	parse_element(element, nowtime):
 	json_path_2 = DIRECTORY+"json/"+date_clean+"/"+GROUP_ID+"_"+post_id+".json"
 	
 	if post_id in saved_posts:
-		print_info("Post "+post_id+" was already saved.")
+		print_debug("Post "+post_id+" was already saved.")
 		return False
 
 	if os.path.exists(json_path) or os.path.exists(json_path_2) or post_id in saved_posts:
@@ -187,16 +187,17 @@ def	parse_element(element, nowtime):
 			json_obj = json.loads(f.read())
 
 		if "comments_count" in json_obj:
+			old_full_name = json_obj["from"]["name"]
 			total = 0
 			for k, v in json_obj["reactions"].items():
 				total += v
 			comments = json_obj["comments_count"]
-			if total == 0 and comments == 0:
+			if (total == 0 and comments == 0) or len(old_full_name.strip()) == 0:
 				print()
 				print_warning(color("Post "+post_id+" is saved but has no reaction data. Resaving.", colors.YELLOW))
 			else:
 				saved_posts.append(post_id)
-				print_info("Post "+post_id+" was already saved and contains all data.")
+				print_info("Post "+post_id+" ("+old_full_name+") was already saved and contains all data.")
 				return False
 
 	if not real_date:
