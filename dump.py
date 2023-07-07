@@ -177,7 +177,7 @@ def	parse_element(element, nowtime):
 		print_debug("Post "+post_id+" was already saved.")
 		return False
 
-	if os.path.exists(json_path) or os.path.exists(json_path_2) or post_id in saved_posts:
+	if os.path.exists(json_path) or os.path.exists(json_path_2):
 		json_obj = {}
 		if os.path.exists(json_path):
 			f = open(json_path, "r")
@@ -194,6 +194,7 @@ def	parse_element(element, nowtime):
 			comments = json_obj["comments_count"]
 			if (total == 0 and comments == 0) or len(old_full_name.strip()) == 0:
 				print()
+				saved_posts.append(post_id)
 				print_warning(color("Post "+post_id+" is saved but has no reaction or user data. Resaving.", colors.YELLOW))
 			else:
 				saved_posts.append(post_id)
@@ -330,14 +331,22 @@ def	parse_element(element, nowtime):
 	with open(json_path, "w+", encoding='utf-8') as f:
 		f.write(json.dumps(obj))
 
-	posts_list_path = DIRECTORY+"json/"+date_clean+"/posts.txt"
-	with open(posts_list_path, "a+", encoding='utf-8') as f:
-		line = post_id+","+full_name+","+created_time+"\n"
-		#print(line)
-		f.write(line)
+	print(saved_posts)
+	if post_id not in saved_posts:
+		posts_list_path = DIRECTORY+"json/"+date_clean+"/posts.txt"
+		posts_list = ""
+		if os.path.exists(posts_list_path):
+			with open(posts_list_path, "r", encoding='utf-8') as f:
+				posts_list = f.read()
+				if not posts_list.endswith("\n"):
+					posts_list = posts_list + "\n"
+		posts_list = posts_list + post_id + "," + full_name + "," + created_time + "\n"
+		posts_list_arr = sorted(posts_list.splitlines())
+		posts_list = "\n".join(posts_list_arr)
+		with open(posts_list_path, "w+", encoding='utf-8') as f:
+			f.write(posts_list)
 
 	saved_posts.append(post_id)
-
 	return obj
 
 def parse(content, nowtime):
