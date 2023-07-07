@@ -195,7 +195,7 @@ def	parse_element(element, nowtime):
 			if (total == 0 and comments == 0) or len(old_full_name.strip()) == 0:
 				print()
 				saved_posts.append(post_id)
-				print_warning(color("Post "+post_id+" is saved but has no reaction or user data. Resaving.", colors.YELLOW))
+				print_warning(color("Post "+post_id+" is saved but has no reaction or user data. Resaving.", colors.PURPLE))
 			else:
 				saved_posts.append(post_id)
 				print_info("Post "+post_id+" ("+old_full_name+") was already saved and contains all data.")
