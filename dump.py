@@ -400,9 +400,10 @@ if __name__ == "__main__":
 	with open(saved_group_id_path, "w+") as f:
 		f.write(GROUP_ID)
 
-	if os.path.exists(saved_timestamp_path):
-		with open(saved_timestamp_path) as f:
-			nowtime = int(f.read().strip())
+	if not (len(sys.argv) > 4 and sys.argv[4] == "reset"):
+		if os.path.exists(saved_timestamp_path):
+			with open(saved_timestamp_path) as f:
+				nowtime = int(f.read().strip())
 
 	try:
 		while True:
