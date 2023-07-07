@@ -3,8 +3,6 @@ from datetime import datetime
 from urllib.parse import unquote
 from colors import *
 
-#todo check groupid mismatch and accept finding out of groupid
-
 def set_windows_title(s):
     try:
         import ctypes
@@ -63,6 +61,8 @@ def save_url(url, prefix):
 		with open(path, "wb") as f:
 			f.write(requests.get(url).content)
 		print_ok("Saved "+filename)
+	else:
+		print_info("Media already saved. "+filename)
 	return filename
 
 def save_photo(photo):
@@ -342,8 +342,13 @@ def	parse_element(element, nowtime):
 
 def parse(content, nowtime):
 	arr = content.split("</article>")
+	if "Wygląda na to, że ta funkcja była przez Ciebie wykorzystywana w zbyt szybki, niewłaściwy sposób. Możliwość korzystania z niej została w Twoim przypadku tymczasowo zablokowana." in content:
+		print_error(color("Rate limit!", colors.RED))
+		print_debug(content)
+		exit()
 	if len(arr) <= 2:
-		print_error("No posts in response")
+		print_error("No posts in response. End of posts?")
+		print_debug(content)
 		exit()
 	all_skipped = True
 	for a in arr:
@@ -376,6 +381,22 @@ if __name__ == "__main__":
 	saved_timestamp_path = DIRECTORY+"stopped_at.txt"
 	saved_group_id_path = DIRECTORY+"group_id.txt"
 
+	if GROUP_ID == "unknown" or GROUP_ID == "?":
+		try:
+			with open(saved_group_id_path) as f:
+				GROUP_ID = f.read().strip()
+				print(GROUP_ID)
+		except:
+			print_error("No saved group id. Please specify in command line args.")
+			exit()
+		
+	if os.path.exists(saved_group_id_path):
+		with open(saved_group_id_path) as f:
+			saved_group_id = f.read().strip()
+			if saved_group_id != GROUP_ID.strip():
+				print_error("Group id mismatch! "+color(GROUP_ID + " =/= " + saved_group_id, colors.RED))
+				exit()
+
 	with open(saved_group_id_path, "w+") as f:
 		f.write(GROUP_ID)
 
@@ -394,7 +415,7 @@ if __name__ == "__main__":
 			while True:
 				try:
 					url = ('https://mbasic.facebook.com/groups/'+GROUP_ID+'?bacr='+str(nowtime)+'%3A951077175399046%3A951077175399046%2C0%2C3%3A7%3AQWE9PSs%3D')
-#					print(url)
+					print_debug(url)
 					response = requests.get('https://mbasic.facebook.com/groups/'+GROUP_ID+'?bacr='+str(nowtime)+'%3A951077175399046%3A951077175399046%2C0%2C3%3A7%3AQWE9PSs%3D', cookies=cookies, headers=headers)
 					all_skipped = parse(response.content.decode(), nowtime)
 					break
