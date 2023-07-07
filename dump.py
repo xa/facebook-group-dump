@@ -331,7 +331,6 @@ def	parse_element(element, nowtime):
 	with open(json_path, "w+", encoding='utf-8') as f:
 		f.write(json.dumps(obj))
 
-	print(saved_posts)
 	if post_id not in saved_posts:
 		posts_list_path = DIRECTORY+"json/"+date_clean+"/posts.txt"
 		posts_list = ""
