@@ -1,7 +1,10 @@
-import requests, html, json, sys, io, time, re, math, os, traceback
+import requests, html, json, sys, io, time, re, math, os, traceback, base64, hashlib
 from datetime import datetime
 from urllib.parse import unquote
 from colors import *
+
+def sha(s):
+	return hashlib.sha256(s).hexdigest()
 
 def set_windows_title(s):
     try:
@@ -15,7 +18,9 @@ class ParseException(Exception):
 
 try:
 	GROUP_ID = sys.argv[1]
-	DIRECTORY = sys.argv[3]+"/"
+	DIRECTORY = sys.argv[3]
+	if not DIRECTORY.endswith("/"):
+		DIRECTORY += "/"
 
 	try:
 		account_name = sys.argv[2].replace(".py", "")
@@ -82,10 +87,11 @@ def save_photo(photo):
 	except KeyboardInterrupt:
 		raise KeyboardInterrupt
 	except:
-		traceback.print_exc()
-		with open(DIRECTORY+"not_dumped_videos.txt", "a+", encoding='utf-8') as f:
-			f.write(photo+"\n") 
-		return photo+".mp4"
+		#traceback.print_exc()
+		#with open(DIRECTORY+"not_dumped_videos.txt", "a+", encoding='utf-8') as f:
+		#	f.write(photo+"\n") 
+		return None
+		#return photo+".mp4"
 
 def save_video(video_url):
 	print_debug("Saving video "+video_url[:200])
@@ -99,7 +105,7 @@ def reconstruct_reactions(element):
 	fixed = element.replace("reakcje", "reakcji").replace("reakcja", "reakcji")
     
 	try:
-		reactions_count = int(fixed.split(" reakcji, w tym")[0].split('aria-label="')[1])
+		reactions_count = int(fixed.split(" reakcji, w tym")[0].split('aria-label="')[-1])
 	except:
 		return {"like": 0, "love": 0, "wow": 0, "haha": 0, "sad": 0, "anger": 0, "care": 0}
 	
@@ -151,6 +157,70 @@ def reconstruct_reactions(element):
 
 	return ret
 
+saved_pfps = {}
+
+def download_pfp(profile_id_int):
+	profile_id = str(profile_id_int)
+	if profile_id not in saved_pfps:
+		content = requests.get("https://mbasic.facebook.com/profile/picture/view/?profile_id="+profile_id, cookies=cookies, headers=headers).content.decode()
+		if "Możliwość korzystania przez Ciebie z tej funkcji została tymczasowo zablokowana." in content:
+			print_error("Pfp save rate limit")
+			exit()
+		#print(content)
+		src = None
+		
+		try:
+			if 'src="https://scontent' in content:
+				src = "https://scontent"+unquote(content.split('src="https://scontent')[1].split('"')[0]).replace('&amp;', "&")
+		except:
+			print_warning("Pfp fallback!")
+			try:
+				if 'width="320" height="320"' in content:
+					for imgs in content.split('<img'):
+						if 'width="320" height="320"' in imgs:
+							src = unquote(imgs.split('src="')[1].split('"')[0]).replace('&amp;', "&")
+			except:
+				src = None
+				
+		if src != None:
+			print_debug("Downloading pfp "+src)
+			content_pfp = requests.get(src, cookies=cookies, headers=headers).content
+			if len(content_pfp) < 32:
+				print_error("Pfp data too short!")
+				with open(DIRECTORY+"no_pfp_data.txt", "a+", encoding='utf-8') as f:
+					f.write(profile_id_int+"\n") 				
+			else:
+				pfp_sha = sha(content_pfp)
+				filename_pfp = profile_id+"_"+sha(content_pfp)+".jpg"
+				path = DIRECTORY+"avatars/"+filename_pfp
+				if os.path.exists(path):
+					print_ok("Pfp was already downloaded. "+color(profile_id, colors.YELLOW))
+				else:
+					with open(path, "wb+") as f:
+						f.write(content_pfp)
+						print_ok("New pfp downloaded! "+color(profile_id, colors.GREEN))
+				saved_pfps[profile_id] = filename_pfp
+				return filename_pfp
+		else:
+			print_error("No pfp data!")
+			userids = []
+			if os.path.exists(DIRECTORY+"no_pfp_data.txt"):
+				with open(DIRECTORY+"no_pfp_data.txt", "r", encoding='utf-8') as f:
+					userids = f.read().splitlines() 
+					
+			userids.append(str(profile_id_int))
+			cpy = set(userids)
+			userids = list(cpy)
+			
+			with open(DIRECTORY+"no_pfp_data.txt", "w+", encoding='utf-8') as f:
+				f.write("\n".join(userids)) 
+			#exit()
+	else:
+		print_debug("Pfp already downloaded "+profile_id)
+		return saved_pfps[profile_id]
+	saved_pfps[profile_id] = ""
+	return ""
+	
 saved_posts = []
 
 def	parse_element(element, nowtime):
@@ -177,6 +247,17 @@ def	parse_element(element, nowtime):
 		print_debug("Post "+post_id+" was already saved.")
 		return False
 
+	reactions = reconstruct_reactions(element)
+	reactions_count = 0
+	for k, v in reactions.items():
+		reactions_count += v
+		
+	comments_count = 0
+	if ">1 komentarz" in element:
+		comments_count = 1
+	if ">Liczba komentarzy: " in element:
+		comments_count = int(element.split(">Liczba komentarzy: ")[1].split("<")[0])
+
 	if os.path.exists(json_path) or os.path.exists(json_path_2):
 		json_obj = {}
 		if os.path.exists(json_path):
@@ -188,47 +269,91 @@ def	parse_element(element, nowtime):
 
 		if "comments_count" in json_obj:
 			old_full_name = json_obj["from"]["name"]
+			old_medias = json_obj["medias"]
+			medias_exists_flag = True
+			for old_media in old_medias:
+				if not os.path.exists(DIRECTORY+"medias/"+old_media):
+					medias_exists_flag = False
 			total = 0
 			for k, v in json_obj["reactions"].items():
 				total += v
-			comments = json_obj["comments_count"]
-			if (total == 0 and comments == 0) or len(old_full_name.strip()) == 0:
-				print()
+			old_comments = json_obj["comments_count"]
+			if "avatar" not in json_obj["from"] or ".jpg" not in json_obj["from"]["avatar"] or not os.path.exists(DIRECTORY+"avatars/"+json_obj["from"]["avatar"]):
 				saved_posts.append(post_id)
-				print_warning(color("Post "+post_id+" is saved but has no reaction or user data. Resaving.", colors.PURPLE))
+				print()
+				print_warning(color("User "+old_full_name+" has no pfp data in json.", colors.PURPLE))
+			elif not medias_exists_flag:
+				saved_posts.append(post_id)
+				print()
+				print_warning(color("Post "+post_id+" ("+old_full_name+") is saved, but not all medias are saved.", colors.PURPLE))
+			elif len(old_full_name.strip()) == 0 or "<" in old_full_name or ">" in old_full_name or "&" in old_full_name:
+				saved_posts.append(post_id)
+				print()
+				print_warning(color("Post "+post_id+" ("+old_full_name+") is saved but has wrong user data. Resaving.", colors.PURPLE))
+			elif total == 0 or old_comments == 0:
+				saved_posts.append(post_id)
+				print()
+				print_warning(color("Post "+post_id+" is saved but has no reactions ("+str(total)+") or comments ("+str(old_comments)+"). Resaving.", colors.PURPLE))
+			elif total != reactions_count or old_comments != comments_count:
+				saved_posts.append(post_id)
+				print()
+				print_warning(color("Post "+post_id+" reactions or comments mismatch. Reactions: "+str(reactions_count)+"/"+str(total)+". Comments "+str(comments_count)+"/"+str(old_comments)+". Resaving.", colors.PURPLE))
 			else:
 				saved_posts.append(post_id)
 				print_info("Post "+post_id+" ("+old_full_name+") was already saved and contains all data.")
 				return False
+	else:
+		print()
 
 	if not real_date:
 		print_error("Mo page insights in data, "+post_id)
 		if not (len(sys.argv) > 4 and sys.argv[4] == "skip"):
 			raise ParseException()
-
+ 
 	full_name = element.split("<strong>")[1].split("</strong>")[0].replace("<span>", "").replace("</span>", "").replace("<wbr />", "").replace('<span class="word_break">', "")
 	full_name = full_name.split(">")[1].split("<")[0]
 	if len(full_name) <= 1:
-		print_warning("Full_name fallback.")
-		full_name = element.split("</a></strong>")[0].split(">")[-1].replace("<span>", "").replace("</span>", "").replace("<wbr />", "").replace('<span class="word_break">', "")
-	full_name = full_name.replace("&#039;", "'")
+		print_warning("Full_name fallback. (1)")
+		full_name = element.split("</a></strong>")[0].replace("<span>", "").replace("</span>", "").replace("<wbr />", "").replace('<span class="word_break">', "").split(">")[-1]
 	if len(full_name) <= 1:
+		print_warning("Full_name fallback. (2)")
+		full_name = element.split("</a></strong>")[0].split(">")[-1].replace("<span>", "").replace("</span>", "").replace("<wbr />", "").replace('<span class="word_break">', "")
+	
+	full_name = full_name.replace("&#039;", "'")
+	if len(full_name) <= 1 or "&" in full_name:
 		print_debug(element)
 		print_warning("Empty full_name " + full_name)
-		full_name = element.split("</a></strong>")[-1].split(">")[1]
 		exit()
-	print()
+
 	print_info(color(full_name + " " + timestamp_clean, colors.YELLOW) + " (" + post_id + ")")
 
-	element_noheader = element.split("</header>")[-1]
+	#shared post
+	shared_post = element.count("<article ") >= 2
+	
+	if shared_post:
+		element_noheader = element.split("</header>")[-3]
+	else:
+		element_noheader = element.split("</header>")[-1]
+
 	if "<p>" in element_noheader:
 		message = element_noheader.split("<p>")[1].split("</p>")[0].strip()
 	elif "<span>" in element_noheader:
 		message = element_noheader.split("<span>")[1].split("</span>")[0].strip()
 	else:
 		message = ""
+		
 	message = format_text(message)
-	#print(data)
+	
+	if shared_post:
+		element_noheader_shared = element.split("</header>")[-1]
+	
+		if "<p>" in element_noheader_shared:
+			message_shared = element_noheader_shared.split("<p>")[1].split("</p>")[0].strip()
+		elif "<span>" in element_noheader_shared:
+			message_shared = element_noheader_shared.split("<span>")[1].split("</span>")[0].strip()
+		else:
+			message_shared = ""
+		message += "\n_________________\nShared post: " + format_text(message_shared)
 
 	post_type = data.get("story_attachment_style", "status")
 	
@@ -257,6 +382,25 @@ def	parse_element(element, nowtime):
 			result = save_photo(photo)
 			if result != None:
 				medias.append(result)
+
+		arr2 = []
+		els = element.split('href="')
+		for e in els:
+			url = e.split('"')[0]
+			if 'https://mbasic.facebook.com/' in url and "permalink" in url and "permalink/"+post_id not in url:
+				print_debug(url)
+				arr2.append(url)
+		#print_debug(arr2)
+		for video in arr2:
+			c = requests.get(video, cookies=cookies, headers=headers).content.decode()
+			if 'href="/video_redirect/' in c:
+				video_real = unquote(c.split('href="/video_redirect/?src=')[1].split('"')[0])
+				print_debug(video_real)
+				result = save_video(video_real)
+				medias.append(result)
+			else:
+				print_error("No video url")
+			
 	elif post_type in [post_type == "video", "video_inline", "animated_image_video"]:
 		#print(data)
 		video_url = element.split('href="/video_redirect/?src=')[1].split('"')[0]
@@ -267,7 +411,7 @@ def	parse_element(element, nowtime):
 			medias.append(result)
 	elif post_type in ["looking_for_players", "commerce_product_item", "status", "fun_fact_stack", "minutiae_event", "image_share", "group_sell_product_item", "fundraiser_person_to_charity", "group_welcome_post", "meet_up_event"]:
 		pass
-	elif post_type in ["event", "file_upload", "pages_share", "share", "avatar", "messenger_generic_template", "music_aggregation", "map", "animated_image_share"]:
+	elif post_type in ["photo_link_share_with_instagram_context", "event", "file_upload", "pages_share", "share", "avatar", "messenger_generic_template", "music_aggregation", "map", "animated_image_share"]:
 		print_info("Shared link: "+link+" ("+post_type+")")
 	elif post_type == "native_templates":
 		message += " <Shared deleted post.>"
@@ -287,12 +431,6 @@ def	parse_element(element, nowtime):
 		with open(DIRECTORY+"not_dumped_files.txt", "a+", encoding='utf-8') as f:
 			f.write(post_id+"\n") 
 	
-	comments_count = 0
-	if ">1 komentarz" in element:
-		comments_count = 1
-	if ">Liczba komentarzy: " in element:
-		comments_count = int(element.split(">Liczba komentarzy: ")[1].split("<")[0])
-
 	#"2021-01-08T11:46:46+0000"
 	created_time = ts.strftime("%Y-%m-%dT%H:%M:%S")+"+0100" 
 
@@ -300,7 +438,10 @@ def	parse_element(element, nowtime):
 		print("    "+l)
 	#print(post_type)
 
-	reactions = reconstruct_reactions(element)
+	if full_name == "Anonimowy członek grupy":
+		pfp_name = "anon.jpg"
+	else:
+		pfp_name = download_pfp(from_id)
 
 	obj = {
 		"timestamp": str(timestamp),
@@ -309,7 +450,8 @@ def	parse_element(element, nowtime):
 		"message": message,
 		"from": {
 			"name": full_name,
-			"id": str(from_id)
+			"id": str(from_id),
+			"avatar": pfp_name
 		},
 		"type": post_type,
 		"link:": link,
@@ -319,7 +461,9 @@ def	parse_element(element, nowtime):
 	}
     
 	print_info(reactions)
+	print_info("Comments: " + str(comments_count))
 	print_debug(json.dumps(obj))
+	print()
 
 	os.makedirs(DIRECTORY+"json/"+date_clean, exist_ok=True)
 	if date_clean not in dates_list:
@@ -349,7 +493,7 @@ def	parse_element(element, nowtime):
 	return obj
 
 def parse(content, nowtime):
-	arr = content.split("</article>")
+	arr = content.split("</footer></article>")
 	if "Wygląda na to, że ta funkcja była przez Ciebie wykorzystywana w zbyt szybki, niewłaściwy sposób. Możliwość korzystania z niej została w Twoim przypadku tymczasowo zablokowana." in content:
 		print_error(color("Rate limit!", colors.RED))
 		print_debug(content)
@@ -361,15 +505,29 @@ def parse(content, nowtime):
 	all_skipped = True
 	for a in arr:
 		if "<article " in a:
-			element = a.split("<article ")[1]
+			#element = a.split("<article ")[1]
+			element = a
 			ret = parse_element(element, nowtime)
 			if ret != False:
 				all_skipped = False
 	return all_skipped
+	
+def write_avatar_defaults():
+	anon_b64 = r"/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wgARCAC0ALQDAREAAhEBAxEB/8QAGwABAAMBAQEBAAAAAAAAAAAAAAEFBgMEAgf/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAD8YAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOZ8HcAAAAAAAAA5mVKs+TuaYtwAAAAAAADJFQAD6Nqe0AAAAAAA5GBIAAL004AAAAAAB4DFAAAszYgAAAAAAHiMQAAC1NeAAAAAAAQYM4AAGoLwAAAAAAAFOZQgA9xtD6AAAAAAAAKooTkWJozoAAAAAAAAAAAAAAAAAACmKQ8R8AAk7lmaA9IAAAAPkyJVgAAAA+zWloAAAAZgowSQAAASQfZtj1AAAHnMQQASQASQASQXJpwAACnM2AACASAADqbcAAAoyiAAAAAAANyAAAUpRkggkAgEggkEm0AAAPEZkAAAAAAHtNMAD/xAA4EAABBAEBBAcECAcAAAAAAAABAAIDEQQFBiAhcRMwMUBBUVIiM2GREBQjMkKBosFEUGBygpLh/9oACAEBAAE/AP69fNFF7yRjP7jSbmYxNDIhPJ4QIIsGx3PJnjxoHSzOpoWfrWRkuIicYYvJvaeZRJJsmz9GNlTYzrglczkeHyWkaw3LIhnpk3gfB3ctoc05OW6Jp+yiNcz4nda4tILTRHEFaRl/XMJsjvvj2X8+4ZcvQYs0voaSiSTZ3tlJayZofB7b/Mdw141pORyA/UN/Z01q0PxDh+k9w1lhk0vJaPTfy47+zTC7VGu9DSf27g9oexzXCwRRWZA7FypIXdrD8xvbLYpZBJkO7ZODeQ7jr+mnKj6aEXMwcR6hu6XgvzsgNFiMffd5BRRtijbGwU1ooDuWp6NFll0kZ6KY9p8DzU+j5sJ9yXjzZxTNOzHGhjTfm0hYWz8zzeU4Rs9I4uWNjxY0IihaGtH8mJABJNALO16GG2Yw6Z/q/CsjVs2cm5iweTPZTpHvNve53M7oJCizMiH3U8jeTlia/PGayA2VvmODlg50Gay4X2R2tPaOrlkZFG58jg1rRZJWrarJmvLGEsgHY3z59XDK+GQPicWPHYQtG1Ruazo5abOB/t8R1W0eeZpjjRn7Nh9r4n/ipUqVKlSAVKlSpUoXvhlbJGae02CtNy25mI2UcD2OHkeo1DI+q4UsviB7PPwRskkmyVSpUqVKlSpUqVKlS2ZyDFlmEn2ZRw5jqNpn1iRs9T7+SpUqVKlSpUqVKlSpUsN/RZUMnpeD1G0/8N/l+ypUqVKlSpUqVKlSpUh1G0jSWQO8ASFSpUqVKlSpUqVKlSpMYXODR2k11Grsa/AlLvw0Qq3KVfTW5SpaOxr8+MOF1Z3f/8QAFBEBAAAAAAAAAAAAAAAAAAAAkP/aAAgBAgEBPwAEf//EABQRAQAAAAAAAAAAAAAAAAAAAJD/2gAIAQMBAT8ABH//2Q=="
+	default_b64 = r"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"
+	if not os.path.exists(DIRECTORY+"avatars/anon.jpg"):
+		with open(DIRECTORY+"avatars/anon.jpg", "wb+") as f:
+			f.write(base64.b64decode(anon_b64))
+	if not os.path.exists(DIRECTORY+"avatars/default.jpg"):
+		with open(DIRECTORY+"avatars/default.jpg", "wb+") as f:
+			f.write(base64.b64decode(default_b64))
 
 if __name__ == "__main__":
 	os.makedirs(DIRECTORY+"json", exist_ok=True)
 	os.makedirs(DIRECTORY+"medias", exist_ok=True)
+	os.makedirs(DIRECTORY+"avatars", exist_ok=True)
+	
+	write_avatar_defaults()
 
 	if os.path.exists(DIRECTORY+"json/dates.txt"):
 		with open(DIRECTORY+"json/dates.txt") as f:
@@ -384,7 +542,7 @@ if __name__ == "__main__":
 		group_name = group_name[:-1]
 		group_name = group_name.split("/")[-1]
 
-	set_windows_title("Dumping group " + group_name + ", account " + account_name + ", started at " + nowts_formatted)
+	set_windows_title("Dump: " + group_name + ", account " + account_name + ", started at " + nowts_formatted)
 
 	saved_timestamp_path = DIRECTORY+"stopped_at.txt"
 	saved_group_id_path = DIRECTORY+"group_id.txt"
@@ -393,11 +551,10 @@ if __name__ == "__main__":
 		try:
 			with open(saved_group_id_path) as f:
 				GROUP_ID = f.read().strip()
-				print(GROUP_ID)
 		except:
 			print_error("No saved group id. Please specify in command line args.")
 			exit()
-		
+	
 	if os.path.exists(saved_group_id_path):
 		with open(saved_group_id_path) as f:
 			saved_group_id = f.read().strip()
@@ -413,13 +570,15 @@ if __name__ == "__main__":
 			with open(saved_timestamp_path) as f:
 				nowtime = int(f.read().strip())
 
+	print_ok("Dumping group "+GROUP_ID)
+
 	try:
 		while True:
 			fromts = str(nowtime)
 			formatted_ts = datetime.fromtimestamp(nowtime).strftime("%Y-%m-%d %H:%M:%S") 
 			#fromts = "1598950034"
 			#time.sleep(0.5)
-			print()
+			#print()
 			print_info(color("Dumping posts from "+formatted_ts, colors.GREEN)+", "+fromts)
 			while True:
 				try:
@@ -428,6 +587,9 @@ if __name__ == "__main__":
 					response = requests.get('https://mbasic.facebook.com/groups/'+GROUP_ID+'?bacr='+str(nowtime)+'%3A951077175399046%3A951077175399046%2C0%2C3%3A7%3AQWE9PSs%3D', cookies=cookies, headers=headers)
 					all_skipped = parse(response.content.decode(), nowtime)
 					break
+				except KeyboardInterrupt:
+					print_info("ctrl+c pressed\n")
+					os._exit(0)
 				except ParseException as e:
 					nowtime += 180
 					print_error("Parse exception, retry")
@@ -440,4 +602,4 @@ if __name__ == "__main__":
 				f.write(str(nowtime))
 	except KeyboardInterrupt:
 		print_info("ctrl+c pressed\n")
-		exit()
+		os._exit(0)
