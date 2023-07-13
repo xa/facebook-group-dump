@@ -2,6 +2,7 @@ import requests, html, json, sys, io, time, re, math, os, traceback, base64, has
 from datetime import datetime
 from urllib.parse import unquote
 from colors import *
+import print_image
 
 def sha(s):
 	return hashlib.sha256(s).hexdigest()
@@ -62,12 +63,22 @@ def url_filename(url):
 def save_url(url, prefix):
 	filename = url_filename(url)
 	path = prefix+filename
+	photo = False
+	if ".jpg" in filename or ".gif" in filename or ".bmp" in filename or ".png" in filename:
+		photo = True
 	if not os.path.exists(path):
 		with open(path, "wb") as f:
 			f.write(requests.get(url).content)
 		print_ok("Saved "+filename)
 	else:
 		print_info("Media already saved. "+filename)
+		
+	if photo and os.path.exists(path):
+		with open(path, "rb") as f:
+			b = f.read()
+			print()
+			print_image.print_bytes(b, scale=0.7)
+		
 	return filename
 
 def save_photo(photo):
@@ -76,7 +87,7 @@ def save_photo(photo):
 	rsp = requests.get(url, cookies=cookies, headers=headers, allow_redirects=False)
 	content = rsp.content.decode()
 	if "Możliwość korzystania przez Ciebie z tej funkcji została tymczasowo zablokowana." in content:
-		print_error("Photo save rate limit")
+		print_error(color("Photo save rate limit", colors.RED))
 		exit()
 	try:
 		#print(url)
@@ -164,7 +175,7 @@ def download_pfp(profile_id_int):
 	if profile_id not in saved_pfps:
 		content = requests.get("https://mbasic.facebook.com/profile/picture/view/?profile_id="+profile_id, cookies=cookies, headers=headers).content.decode()
 		if "Możliwość korzystania przez Ciebie z tej funkcji została tymczasowo zablokowana." in content:
-			print_error("Pfp save rate limit")
+			print_error(color("Avatar save rate limit", colors.RED))
 			exit()
 		#print(content)
 		src = None
@@ -194,11 +205,11 @@ def download_pfp(profile_id_int):
 				filename_pfp = profile_id+"_"+sha(content_pfp)+".jpg"
 				path = DIRECTORY+"avatars/"+filename_pfp
 				if os.path.exists(path):
-					print_ok("Pfp was already downloaded. "+color(profile_id, colors.YELLOW))
+					print_info(color("Pfp was already downloaded. ", colors.DARK_GRAY)+color(profile_id, colors.LIGHT_GRAY))
 				else:
 					with open(path, "wb+") as f:
 						f.write(content_pfp)
-						print_ok("New pfp downloaded! "+color(profile_id, colors.GREEN))
+						print_ok(color("New pfp downloaded! "+profile_id, colors.GREEN))
 				saved_pfps[profile_id] = filename_pfp
 				return filename_pfp
 		else:
@@ -278,32 +289,40 @@ def	parse_element(element, nowtime):
 			for k, v in json_obj["reactions"].items():
 				total += v
 			old_comments = json_obj["comments_count"]
+			skip_post = True
 			if "avatar" not in json_obj["from"] or ".jpg" not in json_obj["from"]["avatar"] or not os.path.exists(DIRECTORY+"avatars/"+json_obj["from"]["avatar"]):
 				saved_posts.append(post_id)
-				print()
-				print_warning(color("User "+old_full_name+" has no pfp data in json.", colors.PURPLE))
-			elif not medias_exists_flag:
+				if skip_post: print()
+				skip_post = False
+				print_info(color("User "+old_full_name+" has no pfp data in json.", colors.BLUE))
+			if not medias_exists_flag:
 				saved_posts.append(post_id)
-				print()
-				print_warning(color("Post "+post_id+" ("+old_full_name+") is saved, but not all medias are saved.", colors.PURPLE))
-			elif len(old_full_name.strip()) == 0 or "<" in old_full_name or ">" in old_full_name or "&" in old_full_name:
+				if skip_post: print()
+				skip_post = False
+				print_info(color("Post "+post_id+" ("+old_full_name+") is saved, but not all medias are saved.", colors.BLUE))
+			if len(old_full_name.strip()) == 0 or "<" in old_full_name or ">" in old_full_name or "&" in old_full_name:
 				saved_posts.append(post_id)
-				print()
-				print_warning(color("Post "+post_id+" ("+old_full_name+") is saved but has wrong user data. Resaving.", colors.PURPLE))
-			elif total == 0 or old_comments == 0:
+				if skip_post: print()
+				skip_post = False
+				print_info(color("Post "+post_id+" ("+old_full_name+") is saved but has wrong user data. Resaving.", colors.BLUE))
+			"""if total == 0 or old_comments == 0:
 				saved_posts.append(post_id)
-				print()
-				print_warning(color("Post "+post_id+" is saved but has no reactions ("+str(total)+") or comments ("+str(old_comments)+"). Resaving.", colors.PURPLE))
-			elif total != reactions_count or old_comments != comments_count:
+				if skip_post: print()
+				skip_post = False
+				print_info(color("Post "+post_id+" is saved but has no reactions ("+str(total)+") or comments ("+str(old_comments)+"). Resaving.", colors.BLUE))
+			el"""
+			if total > reactions_count or old_comments > comments_count:
 				saved_posts.append(post_id)
-				print()
-				print_warning(color("Post "+post_id+" reactions or comments mismatch. Reactions: "+str(reactions_count)+"/"+str(total)+". Comments "+str(comments_count)+"/"+str(old_comments)+". Resaving.", colors.PURPLE))
-			else:
+				if skip_post: print()
+				skip_post = False
+				print_info(color("Post "+post_id+" reactions or comments mismatch. Reactions: "+str(reactions_count)+"/"+str(total)+". Comments "+str(comments_count)+"/"+str(old_comments)+". Resaving.", colors.BLUE))
+			if skip_post:
 				saved_posts.append(post_id)
-				print_info("Post "+post_id+" ("+old_full_name+") was already saved and contains all data.")
+				print_info(color("Post "+post_id+" (", colors.LIGHT_GRAY)+color(old_full_name, colors.WHITE)+color(") was already saved and contains all data.", colors.LIGHT_GRAY))
 				return False
 	else:
 		print()
+		print_ok(color("New post found! ", colors.GREEN))
 
 	if not real_date:
 		print_error("Mo page insights in data, "+post_id)
@@ -325,7 +344,8 @@ def	parse_element(element, nowtime):
 		print_warning("Empty full_name " + full_name)
 		exit()
 
-	print_info(color(full_name + " " + timestamp_clean, colors.YELLOW) + " (" + post_id + ")")
+	post_type = data.get("story_attachment_style", "status")
+	print_info(color(full_name + " " + timestamp_clean, colors.YELLOW)+color(" (" + post_id + ") ", colors.LIGHT_GRAY)+color(post_type, colors.PURPLE))
 
 	#shared post
 	shared_post = element.count("<article ") >= 2
@@ -354,8 +374,6 @@ def	parse_element(element, nowtime):
 		else:
 			message_shared = ""
 		message += "\n_________________\nShared post: " + format_text(message_shared)
-
-	post_type = data.get("story_attachment_style", "status")
 	
 	link = ""
 	if "udostępnił" in element and 'href="/story.php?' in element:
@@ -409,7 +427,7 @@ def	parse_element(element, nowtime):
 		result = save_video(video_url)
 		if result != None:
 			medias.append(result)
-	elif post_type in ["looking_for_players", "commerce_product_item", "status", "fun_fact_stack", "minutiae_event", "image_share", "group_sell_product_item", "fundraiser_person_to_charity", "group_welcome_post", "meet_up_event"]:
+	elif post_type in ["note", "looking_for_players", "commerce_product_item", "status", "fun_fact_stack", "minutiae_event", "image_share", "group_sell_product_item", "fundraiser_person_to_charity", "group_welcome_post", "meet_up_event"]:
 		pass
 	elif post_type in ["photo_link_share_with_instagram_context", "event", "file_upload", "pages_share", "share", "avatar", "messenger_generic_template", "music_aggregation", "map", "animated_image_share"]:
 		print_info("Shared link: "+link+" ("+post_type+")")
@@ -435,9 +453,12 @@ def	parse_element(element, nowtime):
 	created_time = ts.strftime("%Y-%m-%dT%H:%M:%S")+"+0100" 
 
 	for l in message.splitlines():
-		print("    "+l)
+		print(color("    "+l, colors.WHITE))
 	#print(post_type)
-
+    
+	#print_info(reactions)
+	print_info(color("Comments: ", colors.LIGHT_GRAY) + color(str(comments_count), colors.GREEN)+color(", Reactions: ", colors.LIGHT_GRAY)+color(str(reactions_count), colors.GREEN))
+	
 	if full_name == "Anonimowy członek grupy":
 		pfp_name = "anon.jpg"
 	else:
@@ -459,9 +480,7 @@ def	parse_element(element, nowtime):
 		"reactions": reactions,
 		"comments_count": comments_count,
 	}
-    
-	print_info(reactions)
-	print_info("Comments: " + str(comments_count))
+
 	print_debug(json.dumps(obj))
 	print()
 
@@ -523,6 +542,7 @@ def write_avatar_defaults():
 			f.write(base64.b64decode(default_b64))
 
 if __name__ == "__main__":
+	print()
 	os.makedirs(DIRECTORY+"json", exist_ok=True)
 	os.makedirs(DIRECTORY+"medias", exist_ok=True)
 	os.makedirs(DIRECTORY+"avatars", exist_ok=True)
@@ -534,8 +554,8 @@ if __name__ == "__main__":
 			dates_list = f.read().strip().splitlines()
 
 	nowtime = int(time.time())
-	nowts_formatted = datetime.fromtimestamp(nowtime).strftime("%Y-%m-%d %H:%M:%S") 
-	print_ok("Started at "+nowts_formatted)
+	nowts_formatted = datetime.fromtimestamp(nowtime).strftime("%Y-%m-%d %H:%M:%S")
+	print_ok("Started at "+color(nowts_formatted, colors.YELLOW))
     
 	group_name = DIRECTORY
 	if group_name.endswith("/"):
@@ -547,7 +567,7 @@ if __name__ == "__main__":
 	saved_timestamp_path = DIRECTORY+"stopped_at.txt"
 	saved_group_id_path = DIRECTORY+"group_id.txt"
 
-	if GROUP_ID == "unknown" or GROUP_ID == "?":
+	if GROUP_ID == "unknown" or GROUP_ID == "?" or GROUP_ID == "guess" or GROUP_ID == "idk":
 		try:
 			with open(saved_group_id_path) as f:
 				GROUP_ID = f.read().strip()
@@ -570,7 +590,8 @@ if __name__ == "__main__":
 			with open(saved_timestamp_path) as f:
 				nowtime = int(f.read().strip())
 
-	print_ok("Dumping group "+GROUP_ID)
+	print_ok("Dumping group "+color(GROUP_ID, colors.YELLOW))
+	print()
 
 	try:
 		while True:
@@ -579,7 +600,7 @@ if __name__ == "__main__":
 			#fromts = "1598950034"
 			#time.sleep(0.5)
 			#print()
-			print_info(color("Dumping posts from "+formatted_ts, colors.GREEN)+", "+fromts)
+			print_info(color("Dumping posts from ", colors.GREEN)+color(formatted_ts, colors.YELLOW)+color(", "+fromts, colors.DARK_GRAY))
 			while True:
 				try:
 					url = ('https://mbasic.facebook.com/groups/'+GROUP_ID+'?bacr='+str(nowtime)+'%3A951077175399046%3A951077175399046%2C0%2C3%3A7%3AQWE9PSs%3D')

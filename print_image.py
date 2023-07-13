@@ -42,6 +42,7 @@ def print_image(image, scale=1):
 	im = image.convert('RGB')
 	w, h = im.size
 	ratio = w/h
+	
 	im = im.resize((int(50*scale), int(50*scale/ratio)), Resampling.LANCZOS)
 	for y in range(im.size[1]):
 		if y % 2 == 0: continue

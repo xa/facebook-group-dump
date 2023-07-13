@@ -1,8 +1,9 @@
 ####################################################
 # ENVVARS
 #
-# debug=yes/no - prints debug messages
+# debug=yes/no  - prints debug messages
 # caller=yes/no - prints caller filename
+# colors=yes/no - enables colors
 #
 ####################################################
 
@@ -10,27 +11,58 @@ import os
 import inspect
 
 class colors:
-	RED = '\033[91m'
-	GREEN = '\033[92m'
-	YELLOW = '\033[93m'
-	BLUE = '\033[94m'
-	MAGENTA = '\033[95m'
-	PURPLE = '\033[38;5;105m'
-	PINK = '\033[95m'
-	BLACK = '\033[90m'
+	RED = '\033[38;5;196m'
+	DARK_RED = '\033[38;5;124m'
+	PINK = '\033[38;5;198m'
+	
+	DARK_GREEN = '\033[38;5;34m'
+	GREEN = '\033[38;5;107m'
+	LIME = '\033[38;5;149m'
+	
+	YELLOW = '\033[38;5;190m'
+	LIGHT_YELLOW = '\033[38;5;229m'
+	
+	DARK_BLUE = '\033[38;5;21m'
+	BLUE = '\033[38;5;135m'
+	LIGHT_BLUE = '\033[38;5;147m'
+
+	DARK_PURPLE = '\033[38;5;90m'
+	PURPLE = '\033[38;5;163m'
+	LIGHT_PURPLE = '\033[38;5;200m'
+
+	DARK_ORANGE = '\033[38;5;64m'
+	ORANGE = '\033[38;5;172m'
+	LIGHT_ORANGE = '\033[38;5;208m'
+	
+	MAGENTA = '\033[38;5;213m'
+	
+	BLACK = '\033[38;5;238m'
+	DARK_GRAY = '\033[38;5;242m'
+	GRAY = '\033[38;5;245m'
+	LIGHT_GRAY = '\033[38;5;250m'
+	WHITE = '\033[38;5;15m'
+	
 	BOLD = '\033[1m'
 	UNDERLINE = '\033[4m'
 	ENDC = '\033[0m'
 
+def test_colors():
+	for k, v in vars(colors).items():
+		if type(v) == type(""):
+			print(v+k)
+
 def print_debug(str_):
 	if _env_bool("debug"):
-		_print(color(str(str_), colors.BLUE), prefix=color("[d]", colors.MAGENTA))
+		_print(color(str(str_), colors.PURPLE), prefix=color("[d]", colors.MAGENTA))
 
 def color(s, color):
-	return color + str(s) + colors.ENDC
-
+	if _env("colors", default="yes") != "yes" and _env("colors", default="yes") != "y" and _env("colors", default="yes") != "t" and _env("colors", default="yes") != "true" and _env("colors", default="yes") != "":
+		return str(s)
+	else:
+		return color + str(s) + colors.ENDC
+			
 def print_info(str):	
-	_print(str, prefix=color("[i]", colors.PURPLE))
+	_print(str, prefix=color("[i]", colors.BLUE))
 
 def print_ok(str):
 	_print(str, prefix=color("[+]", colors.GREEN))
