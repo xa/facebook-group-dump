@@ -4,6 +4,8 @@ from urllib.parse import unquote
 from colors import *
 import print_image
 
+TERM_SUPPORTS_24BIT_COLORS = True
+
 def sha(s):
 	return hashlib.sha256(s).hexdigest()
 
@@ -77,7 +79,7 @@ def save_url(url, prefix):
 		with open(path, "rb") as f:
 			b = f.read()
 			print()
-			print_image.print_bytes(b, scale=0.7)
+			print_image.print_bytes(b, scale=0.7, margin=7, truecolor=TERM_SUPPORTS_24BIT_COLORS)
 		
 	return filename
 
@@ -98,11 +100,7 @@ def save_photo(photo):
 	except KeyboardInterrupt:
 		raise KeyboardInterrupt
 	except:
-		#traceback.print_exc()
-		#with open(DIRECTORY+"not_dumped_videos.txt", "a+", encoding='utf-8') as f:
-		#	f.write(photo+"\n") 
 		return None
-		#return photo+".mp4"
 
 def save_video(video_url):
 	print_debug("Saving video "+video_url[:200])
@@ -204,16 +202,21 @@ def download_pfp(profile_id_int):
 				pfp_sha = sha(content_pfp)
 				filename_pfp = profile_id+"_"+sha(content_pfp)+".jpg"
 				path = DIRECTORY+"avatars/"+filename_pfp
+				saved_pfps[profile_id] = filename_pfp
 				if os.path.exists(path):
 					print_info(color("Pfp was already downloaded. ", colors.DARK_GRAY)+color(profile_id, colors.LIGHT_GRAY))
+					with open(path, "rb") as f:
+						print()
+						print_image.print_bytes(f.read(), scale=0.3, margin=15, truecolor=TERM_SUPPORTS_24BIT_COLORS)					
 				else:
 					with open(path, "wb+") as f:
 						f.write(content_pfp)
 						print_ok(color("New pfp downloaded! "+profile_id, colors.GREEN))
-				saved_pfps[profile_id] = filename_pfp
+						print()
+						print_image.print_bytes(content_pfp, scale=0.3, margin=15, truecolor=TERM_SUPPORTS_24BIT_COLORS)
 				return filename_pfp
 		else:
-			print_error("No pfp data!")
+			print_error("No pfp data! ‏"+color(profile_id, colors.RED))
 			userids = []
 			if os.path.exists(DIRECTORY+"no_pfp_data.txt"):
 				with open(DIRECTORY+"no_pfp_data.txt", "r", encoding='utf-8') as f:
@@ -228,8 +231,11 @@ def download_pfp(profile_id_int):
 			#exit()
 	else:
 		print_debug("Pfp already downloaded "+profile_id)
+		if ".jpg" in saved_pfps[profile_id]:
+			with open(DIRECTORY+"avatars/"+saved_pfps[profile_id], "rb") as f:
+				print()
+				print_image.print_bytes(f.read(), scale=0.3, margin=15, truecolor=TERM_SUPPORTS_24BIT_COLORS)
 		return saved_pfps[profile_id]
-	saved_pfps[profile_id] = ""
 	return ""
 	
 saved_posts = []
@@ -457,12 +463,13 @@ def	parse_element(element, nowtime):
 	#print(post_type)
     
 	#print_info(reactions)
-	print_info(color("Comments: ", colors.LIGHT_GRAY) + color(str(comments_count), colors.GREEN)+color(", Reactions: ", colors.LIGHT_GRAY)+color(str(reactions_count), colors.GREEN))
-	
+		
 	if full_name == "Anonimowy członek grupy":
 		pfp_name = "anon.jpg"
 	else:
 		pfp_name = download_pfp(from_id)
+		
+	print_info(color("Comments: ", colors.LIGHT_GRAY) + color(str(comments_count), colors.GREEN)+color(", Reactions: ", colors.LIGHT_GRAY)+color(str(reactions_count), colors.GREEN))
 
 	obj = {
 		"timestamp": str(timestamp),
@@ -482,7 +489,7 @@ def	parse_element(element, nowtime):
 	}
 
 	print_debug(json.dumps(obj))
-	print()
+	#print()
 
 	os.makedirs(DIRECTORY+"json/"+date_clean, exist_ok=True)
 	if date_clean not in dates_list:
