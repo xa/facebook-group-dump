@@ -197,23 +197,27 @@ def download_pfp(profile_id_int):
 			if len(content_pfp) < 32:
 				print_error("Pfp data too short!")
 				with open(DIRECTORY+"no_pfp_data.txt", "a+", encoding='utf-8') as f:
-					f.write(profile_id_int+"\n") 				
+					f.write(profile_id_int+"\n") 			
+
+				with open(DIRECTORY+"avatars/default.jpg", "rb") as f:
+						print()
+						print_image.print_bytes(f.read(), scale=0.3, margin=17, truecolor=TERM_SUPPORTS_24BIT_COLORS)							
 			else:
 				pfp_sha = sha(content_pfp)
 				filename_pfp = profile_id+"_"+sha(content_pfp)+".jpg"
 				path = DIRECTORY+"avatars/"+filename_pfp
 				saved_pfps[profile_id] = filename_pfp
 				if os.path.exists(path):
-					print_info(color("Pfp was already downloaded. ", colors.DARK_GRAY)+color(profile_id, colors.LIGHT_GRAY))
 					with open(path, "rb") as f:
 						print()
-						print_image.print_bytes(f.read(), scale=0.3, margin=15, truecolor=TERM_SUPPORTS_24BIT_COLORS)					
+						print_image.print_bytes(f.read(), scale=0.3, margin=17, truecolor=TERM_SUPPORTS_24BIT_COLORS)					
+					print_info(color("Pfp was already downloaded. ", colors.DARK_GRAY)+color(profile_id, colors.LIGHT_GRAY))
 				else:
 					with open(path, "wb+") as f:
 						f.write(content_pfp)
 						print_ok(color("New pfp downloaded! "+profile_id, colors.GREEN))
 						print()
-						print_image.print_bytes(content_pfp, scale=0.3, margin=15, truecolor=TERM_SUPPORTS_24BIT_COLORS)
+						print_image.print_bytes(content_pfp, scale=0.3, margin=17, truecolor=TERM_SUPPORTS_24BIT_COLORS)
 				return filename_pfp
 		else:
 			print_error("No pfp data! ‏"+color(profile_id, colors.RED))
@@ -228,13 +232,22 @@ def download_pfp(profile_id_int):
 			
 			with open(DIRECTORY+"no_pfp_data.txt", "w+", encoding='utf-8') as f:
 				f.write("\n".join(userids)) 
+				
+			with open(DIRECTORY+"avatars/default.jpg", "rb") as f:
+				print()
+				print_image.print_bytes(f.read(), scale=0.3, margin=17, truecolor=TERM_SUPPORTS_24BIT_COLORS)
+	
 			#exit()
 	else:
-		print_debug("Pfp already downloaded "+profile_id)
 		if ".jpg" in saved_pfps[profile_id]:
 			with open(DIRECTORY+"avatars/"+saved_pfps[profile_id], "rb") as f:
 				print()
-				print_image.print_bytes(f.read(), scale=0.3, margin=15, truecolor=TERM_SUPPORTS_24BIT_COLORS)
+				print_image.print_bytes(f.read(), scale=0.3, margin=17, truecolor=TERM_SUPPORTS_24BIT_COLORS)
+		else:
+			with open(DIRECTORY+"avatars/default.jpg", "rb") as f:
+				print()
+				print_image.print_bytes(f.read(), scale=0.3, margin=17, truecolor=TERM_SUPPORTS_24BIT_COLORS)
+		print_info(color("Pfp was already downloaded. ", colors.DARK_GRAY)+color(profile_id, colors.LIGHT_GRAY))
 		return saved_pfps[profile_id]
 	return ""
 	
@@ -275,6 +288,9 @@ def	parse_element(element, nowtime):
 	if ">Liczba komentarzy: " in element:
 		comments_count = int(element.split(">Liczba komentarzy: ")[1].split("<")[0])
 
+	wrong_name = False
+	old_full_name = None
+
 	if os.path.exists(json_path) or os.path.exists(json_path_2):
 		json_obj = {}
 		if os.path.exists(json_path):
@@ -310,6 +326,7 @@ def	parse_element(element, nowtime):
 				saved_posts.append(post_id)
 				if skip_post: print()
 				skip_post = False
+				wrong_name = True
 				print_info(color("Post "+post_id+" ("+old_full_name+") is saved but has wrong user data. Resaving.", colors.BLUE))
 			"""if total == 0 or old_comments == 0:
 				saved_posts.append(post_id)
@@ -433,7 +450,7 @@ def	parse_element(element, nowtime):
 		result = save_video(video_url)
 		if result != None:
 			medias.append(result)
-	elif post_type in ["note", "looking_for_players", "commerce_product_item", "status", "fun_fact_stack", "minutiae_event", "image_share", "group_sell_product_item", "fundraiser_person_to_charity", "group_welcome_post", "meet_up_event"]:
+	elif post_type in ["fundraiser_for_story", "note", "looking_for_players", "commerce_product_item", "status", "fun_fact_stack", "minutiae_event", "image_share", "group_sell_product_item", "fundraiser_person_to_charity", "group_welcome_post", "meet_up_event"]:
 		pass
 	elif post_type in ["photo_link_share_with_instagram_context", "event", "file_upload", "pages_share", "share", "avatar", "messenger_generic_template", "music_aggregation", "map", "animated_image_share"]:
 		print_info("Shared link: "+link+" ("+post_type+")")
@@ -470,6 +487,9 @@ def	parse_element(element, nowtime):
 		pfp_name = download_pfp(from_id)
 		
 	print_info(color("Comments: ", colors.LIGHT_GRAY) + color(str(comments_count), colors.GREEN)+color(", Reactions: ", colors.LIGHT_GRAY)+color(str(reactions_count), colors.GREEN))
+
+	if not wrong_name and old_full_name != None:
+		full_name = old_full_name
 
 	obj = {
 		"timestamp": str(timestamp),
