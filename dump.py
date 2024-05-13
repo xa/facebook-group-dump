@@ -5,6 +5,8 @@ from colors import *
 import print_image
 
 TERM_SUPPORTS_24BIT_COLORS = True
+#session = requests.Session()
+session = requests
 
 def sha(s):
 	return hashlib.sha256(s).hexdigest()
@@ -42,7 +44,7 @@ except:
 	exit()
 
 #fuck windows
-sys.stdout = io.open(sys.stdout.fileno(), 'w', encoding='utf8')
+sys.stdout = io.open(sys.stdout.fileno(), 'w', encoding='utf-8')
 
 TAG_RE = re.compile(r'<[^>]+>')
 dates_list = []
@@ -56,7 +58,7 @@ def format_text(text):
 	for line in text.split("\n"):
 		line = line.strip()
 		newtext.append(line)
-	return html.unescape(remove_tags("\n".join(newtext)))
+	return html.unescape(remove_tags("\n".join(newtext))).strip()
 
 def url_filename(url):
 	url_ = url.split("?")[0] if "?" in url else url
@@ -70,7 +72,7 @@ def save_url(url, prefix):
 		photo = True
 	if not os.path.exists(path):
 		with open(path, "wb") as f:
-			f.write(requests.get(url).content)
+			f.write(session.get(url).content)
 		print_ok("Saved "+filename)
 	else:
 		print_info("Media already saved. "+filename)
@@ -86,7 +88,7 @@ def save_url(url, prefix):
 def save_photo(photo):
 	print_debug("Saving photo "+photo)
 	url = "https://mbasic.facebook.com/photo/view_full_size/?fbid="+photo
-	rsp = requests.get(url, cookies=cookies, headers=headers, allow_redirects=False)
+	rsp = session.get(url, cookies=cookies, headers=headers, allow_redirects=False)
 	content = rsp.content.decode()
 	if "Możliwość korzystania przez Ciebie z tej funkcji została tymczasowo zablokowana." in content:
 		print_error(color("Photo save rate limit", colors.RED))
@@ -171,7 +173,7 @@ saved_pfps = {}
 def download_pfp(profile_id_int):
 	profile_id = str(profile_id_int)
 	if profile_id not in saved_pfps:
-		content = requests.get("https://mbasic.facebook.com/profile/picture/view/?profile_id="+profile_id, cookies=cookies, headers=headers).content.decode()
+		content = session.get("https://mbasic.facebook.com/profile/picture/view/?profile_id="+profile_id, cookies=cookies, headers=headers).content.decode()
 		if "Możliwość korzystania przez Ciebie z tej funkcji została tymczasowo zablokowana." in content:
 			print_error(color("Avatar save rate limit", colors.RED))
 			exit()
@@ -193,7 +195,7 @@ def download_pfp(profile_id_int):
 				
 		if src != None:
 			print_debug("Downloading pfp "+src)
-			content_pfp = requests.get(src, cookies=cookies, headers=headers).content
+			content_pfp = session.get(src, cookies=cookies, headers=headers).content
 			if len(content_pfp) < 32:
 				print_error("Pfp data too short!")
 				with open(DIRECTORY+"no_pfp_data.txt", "a+", encoding='utf-8') as f:
@@ -250,38 +252,188 @@ def download_pfp(profile_id_int):
 		print_info(color("Pfp was already downloaded. ", colors.DARK_GRAY)+color(profile_id, colors.LIGHT_GRAY))
 		return saved_pfps[profile_id]
 	return ""
+
+cached_uids = {}
+
+def parse_uid_from_profile(url):
+	global cached_uids
+	url_short = url.split("&")[0]
+	if url_short in cached_uids:
+		return cached_uids[url_short]
+
+	if not url.startswith("https://mbasic.facebook.com/"):
+		url = "https://mbasic.facebook.com" + url
+	response = session.get(url, cookies=cookies, headers=headers)
+	content = response.content.decode()
+	uid = None
+	try:
+		if "/privacy/touch/block/confirm/?bid=" in content:
+			uid = content.split("/privacy/touch/block/confirm/?bid=")[1].split("&")[0]
+		elif "/profile/timeline/stream/" in content:
+			uid_tmp = content.split("/profile/timeline/stream/")[1].split(">")[0]
+			uid = uid_tmp.split("profile_id=")[1].split("&")[0]
+		print_debug("Parsed userid: "+str(uid))
+
+		cached_uids[url_short] = uid
+	except:
+		traceback.print_exc()
+		print_debug(content)
+	if uid == None:
+		print_error("Couldn't get uid for "+url)
+		exit()
+	return uid
+
+def get_post_timestamp(post_id):
+	#url = 'https://www.facebook.com/story.php/?id='+GROUP_ID+'&story_fbid='+post_id
+	url = "https://www.facebook.com/groups/"+GROUP_ID+"/posts/"+post_id+"/"
 	
+	print_debug(url)
+	response = session.get(url, cookies=cookies, headers=headers)
+	content = response.content.decode()
+	if "Wygląda na to, że ta funkcja była przez " in content:
+		print_error("get_post_timestamp rate limit")
+		exit()
+	if '"creation_time":' not in content:
+		print_error("creation_time not found in response.")
+		print_debug(content)
+		exit()
+	arr = content.split('"creation_time":')
+	candidates = []
+	for a in arr:
+		timestamp_s = str(a.split(",")[0])
+		try:
+			timestamp_i = int(timestamp_s)
+		except:
+			pass
+		#1711808819
+		if len(timestamp_s) == 10:
+			candidates.append(timestamp_i)
+		else:
+			if not timestamp_s.startswith("<!DOCTYPE html"):
+				print_warning("Bad timestamp: "+timestamp_s[:16])
+	print_debug("Post timestamp candidates: "+str(candidates))
+	"""
+	lowest = sorted(candidates)[0]
+	ret = str(lowest)
+	"""
+	ret = str(candidates[-1])
+	print_debug("Got post timestamp! "+ret)
+	return ret
+
 saved_posts = []
 
 def	parse_element(element, nowtime):
 	global saved_posts
 	data = json.loads(html.unescape(element.split(' data-ft="')[1].split('"')[0]))
 	#print(element)
-	from_id = data["actrs"]
-	post_id = data["top_level_post_id"]
-	real_date = False
-	if "page_insights" in data:	
-		timestamp = data["page_insights"][GROUP_ID]["post_context"]["publish_time"]
-		real_date = True
-	else:
-		timestamp = 0
+	from_id = None
+	#profile_url = element.split('<strong><a href="')[1].split('"')[0]
+	post_id = element.split("/permalink/")[-1].split("/")[0]
 
-	ts = datetime.fromtimestamp(int(timestamp))
-	date_clean = ts.strftime("%Y-%m-%d")
-	timestamp_clean = ts.strftime("%Y-%m-%d %H:%M:%S")
-
-	json_path = DIRECTORY+"json/"+date_clean+"/"+post_id+".json"
-	json_path_2 = DIRECTORY+"json/"+date_clean+"/"+GROUP_ID+"_"+post_id+".json"
-	
 	if post_id in saved_posts:
 		print_debug("Post "+post_id+" was already saved.")
 		return False
+
+	full_name = element.split("<strong>")[1].split("</strong>")[0].replace("<span>", "").replace("</span>", "").replace("<wbr />", "").replace('<span class="word_break">', "")
+	full_name = full_name.split(">")[1].split("<")[0]
+	if len(full_name) <= 1:
+		print_warning("Full_name fallback. (1)")
+		full_name = element.split("</a></strong>")[0].replace("<span>", "").replace("</span>", "").replace("<wbr />", "").replace('<span class="word_break">', "").split(">")[-1]
+	if len(full_name) <= 1:
+		print_warning("Full_name fallback. (2)")
+		full_name = element.split("</a></strong>")[0].split(">")[-1].replace("<span>", "").replace("</span>", "").replace("<wbr />", "").replace('<span class="word_break">', "")
+	
+	full_name = full_name.replace("&#039;", "'")
+	if len(full_name) <= 1 or "&" in full_name:
+		print_debug(element)
+		print_warning("Empty full_name " + full_name)
+		exit()
+ 
+	post_type = data.get("story_attachment_style", "status")
+
+	#shared post
+	shared_post = element.count("<article ") >= 2
+	
+	if shared_post:
+		element_noheader = element.split("</header>")[-3]
+	else:
+		element_noheader = element.split("</header>")[-1]
+
+	message = element_noheader.split("<footer")[0]
+	message = format_text(message)
+	
+	if shared_post:
+		element_noheader_shared = element.split("</header>")[-1]
+	
+		if "<p>" in element_noheader_shared:
+			message_shared = element_noheader_shared.split("<p>")[1].split("</p>")[0].strip()
+		elif "<span>" in element_noheader_shared:
+			message_shared = element_noheader_shared.split("<span>")[1].split("</span>")[0].strip()
+		else:
+			message_shared = ""
+		message += "\n_________________\nShared post: " + format_text(message_shared)
+
+	link = ""
+	if "https://lm.facebook.com/l.php?u=" in element:
+		link = element.split('https://lm.facebook.com/l.php?u=')[1].split('"')[0]
+		link = unquote(link)
+		link = link.split("&eav=")[0].split("&fbclid=")[0].split("?fbclid=")[0]
+		if len(link) > 0:
+			message += "\n"+link
+			
+	if "udostępnił" in element and 'href="/story.php?' in element:
+		link = "https://mbasic.facebook.com/story.php?" + element.split('href="/story.php?')[1].split('"')[0]
+		link = unquote(link)
+		link = link.split("&eav=")[0].split("&fbclid=")[0].split("?fbclid=")[0]
+
+	if post_type == "native_templates":
+		message += " <Shared deleted post.>"
+	elif post_type == "ama_post":
+		message += " <Hosted q&a session.>"
+	elif post_type == "fb_note":
+		message += " <fb_note>"
+	elif post_type == "story_list":
+		message += " <story_list contents not dumped>"
+	
+	message = message.strip()
+	
+	json_found = False
+	json_obj = {}
+
+	timestamp =	0
+	from_id = None
+	found_date = False
+
+	if full_name == "Anonimowy członek grupy":
+		from_id = "99999"
+	else:
+		if from_id == None:
+			#from_id = parse_uid_from_profile(profile_url)
+			from_id = element.split("story_id=S%3A_I")[1].split("%")[0] #better method
+	
+	for file, old_obj in SAVED_POSTS_OBJ.items():
+		if old_obj.get("message", "NULL") == message and old_obj["from"].get("id", "99999") == from_id:
+			print_info(color("Found json match! "+file, colors.GRAY))
+			timestamp = old_obj["timestamp"]
+			from_id = old_obj["from"]["id"]
+			json_obj = old_obj
+			found_date = True
+			break
+		
+	if post_id == None or len(post_id) < 4:
+		print_error("Bad post_id: "+str(post_id))
+		exit()
+	if from_id == None or len(from_id) < 4:
+		print_error("Bad from_id: "+str(from_id))
+		exit()
+
+	print_debug(from_id+", "+post_id)
 
 	reactions = reconstruct_reactions(element)
 	reactions_count = 0
 	for k, v in reactions.items():
 		reactions_count += v
-		
+
 	comments_count = 0
 	if ">1 komentarz" in element:
 		comments_count = 1
@@ -291,15 +443,35 @@ def	parse_element(element, nowtime):
 	wrong_name = False
 	old_full_name = None
 
-	if os.path.exists(json_path) or os.path.exists(json_path_2):
-		json_obj = {}
-		if os.path.exists(json_path):
-			f = open(json_path, "r")
-			json_obj = json.loads(f.read())
-		if os.path.exists(json_path_2):
-			f = open(json_path, "r")
-			json_obj = json.loads(f.read())
+	if found_date == False:
+		if "page_insights" in data:
+			timestamp = data["page_insights"][GROUP_ID]["post_context"]["publish_time"]
+			found_date = True
+		else:
+			timestamp = 0
 
+	if found_date == False:
+		timestamp = get_post_timestamp(post_id)
+		if timestamp != 0:
+			found_date = True
+
+	ts = datetime.fromtimestamp(int(timestamp))
+	timestamp_clean = ts.strftime("%Y-%m-%d %H:%M:%S")
+	date_clean = ts.strftime("%Y-%m-%d")
+
+	json_path = DIRECTORY+"json/"+date_clean+"/"+post_id+".json"
+	json_path_2 = DIRECTORY+"json/"+date_clean+"/"+GROUP_ID+"_"+post_id+".json"
+
+	if os.path.exists(json_path):
+		f = open(json_path, "r")
+		json_obj = json.loads(f.read())
+		json_found = True
+	elif os.path.exists(json_path_2):
+		f = open(json_path, "r")
+		json_obj = json.loads(f.read())
+		json_found = True
+
+	if os.path.exists(json_path) or os.path.exists(json_path_2) or json_found:
 		if "comments_count" in json_obj:
 			old_full_name = json_obj["from"]["name"]
 			old_medias = json_obj["medias"]
@@ -334,7 +506,7 @@ def	parse_element(element, nowtime):
 				skip_post = False
 				print_info(color("Post "+post_id+" is saved but has no reactions ("+str(total)+") or comments ("+str(old_comments)+"). Resaving.", colors.BLUE))
 			el"""
-			if total > reactions_count or old_comments > comments_count:
+			if total > reactions_count or comments_count > old_comments:
 				saved_posts.append(post_id)
 				if skip_post: print()
 				skip_post = False
@@ -347,130 +519,45 @@ def	parse_element(element, nowtime):
 		print()
 		print_ok(color("New post found! ", colors.GREEN))
 
-	if not real_date:
-		print_error("Mo page insights in data, "+post_id)
-		if not (len(sys.argv) > 4 and sys.argv[4] == "skip"):
-			raise ParseException()
- 
-	full_name = element.split("<strong>")[1].split("</strong>")[0].replace("<span>", "").replace("</span>", "").replace("<wbr />", "").replace('<span class="word_break">', "")
-	full_name = full_name.split(">")[1].split("<")[0]
-	if len(full_name) <= 1:
-		print_warning("Full_name fallback. (1)")
-		full_name = element.split("</a></strong>")[0].replace("<span>", "").replace("</span>", "").replace("<wbr />", "").replace('<span class="word_break">', "").split(">")[-1]
-	if len(full_name) <= 1:
-		print_warning("Full_name fallback. (2)")
-		full_name = element.split("</a></strong>")[0].split(">")[-1].replace("<span>", "").replace("</span>", "").replace("<wbr />", "").replace('<span class="word_break">', "")
-	
-	full_name = full_name.replace("&#039;", "'")
-	if len(full_name) <= 1 or "&" in full_name:
-		print_debug(element)
-		print_warning("Empty full_name " + full_name)
-		exit()
-
-	post_type = data.get("story_attachment_style", "status")
 	print_info(color(full_name + " " + timestamp_clean, colors.YELLOW)+color(" (" + post_id + ") ", colors.LIGHT_GRAY)+color(post_type, colors.PURPLE))
-
-	#shared post
-	shared_post = element.count("<article ") >= 2
-	
-	if shared_post:
-		element_noheader = element.split("</header>")[-3]
-	else:
-		element_noheader = element.split("</header>")[-1]
-
-	if "<p>" in element_noheader:
-		message = element_noheader.split("<p>")[1].split("</p>")[0].strip()
-	elif "<span>" in element_noheader:
-		message = element_noheader.split("<span>")[1].split("</span>")[0].strip()
-	else:
-		message = ""
-		
-	message = format_text(message)
-	
-	if shared_post:
-		element_noheader_shared = element.split("</header>")[-1]
-	
-		if "<p>" in element_noheader_shared:
-			message_shared = element_noheader_shared.split("<p>")[1].split("</p>")[0].strip()
-		elif "<span>" in element_noheader_shared:
-			message_shared = element_noheader_shared.split("<span>")[1].split("</span>")[0].strip()
-		else:
-			message_shared = ""
-		message += "\n_________________\nShared post: " + format_text(message_shared)
-	
-	link = ""
-	if "udostępnił" in element and 'href="/story.php?' in element:
-		link = "https://mbasic.facebook.com/story.php?" + element.split('href="/story.php?')[1].split('">')[0]
-		link = html.unescape(link)
-		link = link.split("&eav=")[0]
-
 	medias = []
 
-	if post_type == "photo":
-		result = save_photo(data["photo_id"])
-		if result != None:
-			medias.append(result)
-	elif post_type in ["album", "new_album"]:
-		arr = []
-		if "photo_attachments_list" in data:
-			arr = data["photo_attachments_list"]
-		else:
-			dirty_arr = element.split("/photo.php?fbid=")[1:]
-			for dirty_photoid in dirty_arr:
-				arr.append(dirty_photoid.split("&")[0])
-			print_debug("Parsed photoids: "+str(arr))
-		for photo in arr:
-			result = save_photo(photo)
+	# dirty fix
+	post_type = "unknown"
+
+	#save medias
+	els = element.split('href="')
+	
+	for e in els:
+		url = e.split('"')[0]
+		if 'href="/photos/' in url:
+			photoid = url.split('/')[4].replace("?", "").replace("&", "")
+			result = save_photo(photoid)
 			if result != None:
 				medias.append(result)
-
-		arr2 = []
-		els = element.split('href="')
-		for e in els:
-			url = e.split('"')[0]
-			if 'https://mbasic.facebook.com/' in url and "permalink" in url and "permalink/"+post_id not in url:
-				print_debug(url)
-				arr2.append(url)
-		#print_debug(arr2)
-		for video in arr2:
-			c = requests.get(video, cookies=cookies, headers=headers).content.decode()
+		if '/photo.php?fbid=' in url:
+			photoid = url.split('/photo.php?fbid=')[1].split("&")[0]
+			result = save_photo(photoid)
+			if result != None:
+				medias.append(result)
+		if '/video_redirect/' in url:
+			video_real = unquote(url.split('/video_redirect/?src=')[1].split('"')[0])
+			print_debug(video_real)
+			result = save_video(video_real)
+			if result != None:
+				medias.append(result)
+		if 'https://mbasic.facebook.com/' in url and "permalink" in url and "permalink/"+post_id not in url:
+			print_debug(url)
+			c = session.get(url, cookies=cookies, headers=headers).content.decode()
 			if 'href="/video_redirect/' in c:
 				video_real = unquote(c.split('href="/video_redirect/?src=')[1].split('"')[0])
 				print_debug(video_real)
 				result = save_video(video_real)
-				medias.append(result)
+				if result != None:
+					medias.append(result)
 			else:
 				print_error("No video url")
-			
-	elif post_type in [post_type == "video", "video_inline", "animated_image_video"]:
-		#print(data)
-		video_url = element.split('href="/video_redirect/?src=')[1].split('"')[0]
-		video_url = html.unescape(video_url)
-		video_url = unquote(video_url)
-		result = save_video(video_url)
-		if result != None:
-			medias.append(result)
-	elif post_type in ["fundraiser_for_story", "note", "looking_for_players", "commerce_product_item", "status", "fun_fact_stack", "minutiae_event", "image_share", "group_sell_product_item", "fundraiser_person_to_charity", "group_welcome_post", "meet_up_event"]:
-		pass
-	elif post_type in ["photo_link_share_with_instagram_context", "event", "file_upload", "pages_share", "share", "avatar", "messenger_generic_template", "music_aggregation", "map", "animated_image_share"]:
-		print_info("Shared link: "+link+" ("+post_type+")")
-	elif post_type == "native_templates":
-		message += " <Shared deleted post.>"
-	elif post_type == "ama_post":
-		message += " <Hosted q&a session.>"
-	elif post_type == "fb_note":
-		message += " <fb_note>"
-	elif post_type == "story_list":
-		message += " <story_list contents not dumped>"
-	else:
-		print_error("UNKNOWN POST TYPE: "+post_type)
-		print_error(post_id)
-		exit()
-
-	if post_type == "file_upload":
-		print_warning("File upload dumping is not implemented yet.")
-		with open(DIRECTORY+"not_dumped_files.txt", "a+", encoding='utf-8') as f:
-			f.write(post_id+"\n") 
+				exit()
 	
 	#"2021-01-08T11:46:46+0000"
 	created_time = ts.strftime("%Y-%m-%dT%H:%M:%S")+"+0100" 
@@ -502,7 +589,7 @@ def	parse_element(element, nowtime):
 			"avatar": pfp_name
 		},
 		"type": post_type,
-		"link:": link,
+		"link": link,
 		"medias": medias,
 		"reactions": reactions,
 		"comments_count": comments_count,
@@ -519,7 +606,7 @@ def	parse_element(element, nowtime):
 			f.write(sorted_dates)
 
 	with open(json_path, "w+", encoding='utf-8') as f:
-		f.write(json.dumps(obj))
+		f.write(json.dumps(obj, indent=4))
 
 	if post_id not in saved_posts:
 		posts_list_path = DIRECTORY+"json/"+date_clean+"/posts.txt"
@@ -567,6 +654,8 @@ def write_avatar_defaults():
 	if not os.path.exists(DIRECTORY+"avatars/default.jpg"):
 		with open(DIRECTORY+"avatars/default.jpg", "wb+") as f:
 			f.write(base64.b64decode(default_b64))
+
+SAVED_POSTS_OBJ = {}
 
 if __name__ == "__main__":
 	print()
@@ -619,6 +708,51 @@ if __name__ == "__main__":
 
 	print_ok("Dumping group "+color(GROUP_ID, colors.YELLOW))
 	print()
+	
+	points=[]
+
+	for dir in os.listdir(DIRECTORY+"json"):
+		if not os.path.isdir(DIRECTORY+"json/"+dir): continue
+		for json_filename in os.listdir(DIRECTORY+"json/"+dir):
+			json_path = DIRECTORY+"json/"+dir+"/"+json_filename
+			if not json_path.endswith(".json"): continue
+			if json_path.endswith("_comments.json"): continue
+			
+			json_obj = {}
+			with open(json_path, "r", encoding="utf-8") as f:
+				json_obj = json.loads(f.read())
+				
+				ts = int(json_obj["timestamp"])
+				id = int(json_obj["id"])
+				points.append((id, ts))
+				
+				SAVED_POSTS_OBJ[json_path] = json_obj
+	
+	"""
+	x1 = points[1][0]
+	x2 = points[-1][0]
+	
+	y1 = points[1][1]
+	y2 = points[-1][1]
+	
+	m = (y1-y2)/(x1-x2)
+
+	b = y2 - m*x2
+	
+	print(m, b)
+	
+	id2 = 1580136819000000
+	ts2 = int(m * id2 + b)
+	print(ts2)
+	
+	ts22 = datetime.fromtimestamp(int(ts2))
+	timestamp_clean = ts22.strftime("%Y-%m-%d %H:%M:%S")
+	print(timestamp_clean)
+	
+	
+	"""
+	
+	print_info(str(len(SAVED_POSTS_OBJ))+" posts already dumped.")
 
 	try:
 		while True:
@@ -632,7 +766,7 @@ if __name__ == "__main__":
 				try:
 					url = ('https://mbasic.facebook.com/groups/'+GROUP_ID+'?bacr='+str(nowtime)+'%3A951077175399046%3A951077175399046%2C0%2C3%3A7%3AQWE9PSs%3D')
 					print_debug(url)
-					response = requests.get('https://mbasic.facebook.com/groups/'+GROUP_ID+'?bacr='+str(nowtime)+'%3A951077175399046%3A951077175399046%2C0%2C3%3A7%3AQWE9PSs%3D', cookies=cookies, headers=headers)
+					response = session.get('https://mbasic.facebook.com/groups/'+GROUP_ID+'?bacr='+str(nowtime)+'%3A951077175399046%3A951077175399046%2C0%2C3%3A7%3AQWE9PSs%3D', cookies=cookies, headers=headers)
 					all_skipped = parse(response.content.decode(), nowtime)
 					break
 				except KeyboardInterrupt:
@@ -646,7 +780,7 @@ if __name__ == "__main__":
 				nowtime -= 15 * 60;
 			else:
 				nowtime -= 5 * 60;
-			with open(saved_timestamp_path, "w+") as f:
+			with open(saved_timestamp_path, "w+", encoding="utf-8") as f:
 				f.write(str(nowtime))
 	except KeyboardInterrupt:
 		print_info("ctrl+c pressed\n")

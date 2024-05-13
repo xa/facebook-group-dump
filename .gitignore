@@ -8,3 +8,7 @@ geckodriver.log
 page*
 page/*
 shot.png
+frontend/*
+cookies*
+cookies/
+cookies
