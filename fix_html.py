@@ -98,6 +98,10 @@ def fix(path, id, headers, cookies):
 		for el in soup.find_all(attrs={"class": "_1-sk"}):
 			el['style'] = el.get("style", "")+"; margin: 0px;"
 
+		#triangle > fix
+		for el in soup.find_all("i", attrs={"class": "_5s3i _4q9a img sp_D06VMFUbltx_3x sx_d84c2c"}):
+			el['style'] = el.get("style", "")+"; transform: translateY(1px);"
+
 		#comment box
 		for el in soup.find_all("div", attrs={"data-sigil": "mufi-inline"}):
 			decomp.append(el)
@@ -133,11 +137,42 @@ def fix(path, id, headers, cookies):
 		#name offset
 		for el in soup.find_all("div", attrs={"class": "_4g34 _5i2i _52we"}):
 			el["style"] = "margin-top: 14px; margin-left: 10px"
-			
+		
+		first_pfp = True
+		
 		#avatars
 		for el in soup.find_all("i", attrs={"class": "img _1-yc profpic"}):
 			#make them bigger
 			el["style"] = el.get("style", "").replace("width:24px", "width:32px").replace("height:24px", "height:32px")
+			#move it down
+			
+			if first_pfp:
+				el["style"] = el["style"]+"; width:40px; height:40px;"
+				first_pfp = False
+			
+			if "40px" in el["style"]:
+				pass
+				#el["style"] = el["style"]+"; top:9px; position: relative;"
+			else:
+				el["style"] = el["style"]+"; top:14px; position: relative;"
+				
+			el["style"] = el["style"]+"; border: 1px solid #eeeeee"
+		
+		#follow button remove
+		for el in soup.find_all("button", attrs={"class": "_56bz _54k8 _52jg _56bs _26vk _56bt"}):
+			decomp.append(el)
+		
+		#anon name fix
+		for el in soup.find_all("div", attrs={"class": "_59k _2rgt _1j-f _2rgt"}):
+			if "Anonimowy członek" in el.get_text():
+				el.clear()
+				el.append('Anonimowy członek grupy')
+				el["class"].remove("_59k")
+	
+		#avatars anon
+		for el in soup.find_all("div", attrs={"class": "_67lm _77kc"}):
+			#make them bigger
+			el["style"] = "width:40px; height:40px; border-radius: 20px; overflow: hidden"
 			#move it down
 			if "40px" in el["style"]:
 				el["style"] = el["style"]+"; top:9px; position: relative;"
@@ -145,6 +180,14 @@ def fix(path, id, headers, cookies):
 				el["style"] = el["style"]+"; top:14px; position: relative;"
 				
 			el["style"] = el["style"]+"; border: 1px solid #eeeeee"
+			
+		#story ring
+		for el in soup.find_all(attrs={"class": "_67lm _8479 _847o _77kc"}):
+			el["class"].remove("_67lm")
+			el["class"].remove("_8479")
+			el["class"].remove("_847o")
+			el["class"].remove("_77kc")
+			el["style"] = "width:40px; height:40px; border-radius: 20px; overflow: hidden; top:9px; position: relative;"	
 			
 		#hide emojis
 		for el in soup.find_all("span", attrs={"class": "_6qdm"}):
@@ -176,7 +219,7 @@ def fix(path, id, headers, cookies):
 			
 		#comments margin
 		for el in soup.find_all("div", attrs={"class": "_2b04"}):
-			el["style"] = "margin-top: 15px; overflow: visible;"
+			el["style"] = "margin-top: 12px; overflow: visible;"
 		
 		#dot
 		for el in soup.find_all("span", attrs={"aria-hidden": "true"}):
@@ -320,6 +363,7 @@ def fix(path, id, headers, cookies):
 				divv = soup.new_tag("div")
 				video["src"] = obj["src"]+"#t=0.001"
 				video["controls"] = True
+				
 				#print(video)
 			
 				for ell in el.find_all("div"):
@@ -349,12 +393,14 @@ def fix(path, id, headers, cookies):
 		for el in soup.find_all("img"):
 			el["style"] = "max-width: 100%; height: auto;"
 	
+		session = requests.Session()
+	
 		for el in soup('img')[:]:
 			src = el["src"]
 			print_info("Downloading image "+color(src, colors.GREEN))
 			mediapath = "media/"+sha(src)+".jpg"
 			if not os.path.exists(path+mediapath):
-				bytes = requests.get(src, headers=headers, cookies=cookies).content
+				bytes = session.get(src, headers=headers, cookies=cookies).content
 				with open(path+mediapath, "wb+") as f:
 					f.write(bytes)
 			el['src'] = "./"+mediapath
@@ -364,7 +410,7 @@ def fix(path, id, headers, cookies):
 			print_info("Downloading video "+color(src, colors.GREEN))
 			mediapath = "media/"+sha(src)+".mp4"
 			if not os.path.exists(path+mediapath):
-				bytes = requests.get(src, headers=headers, cookies=cookies).content
+				bytes = session.get(src, headers=headers, cookies=cookies).content
 				with open(path+mediapath, "wb+") as f:
 					f.write(bytes)
 			el['src'] = "./"+mediapath
@@ -376,15 +422,18 @@ def fix(path, id, headers, cookies):
 				if "background" in style:
 					#print(style)
 					fixedurl = None
+					url = None
+					
 					if "url('" in style:
 						url = style.split("url('")[1].split("')")[0]
-						fixedurl = url.replace("\\3a ", ":").replace("\\3d ", "=").replace("\\26 ", "&").replace(r"\25 3A", ":").replace(r"\25 2F", "/")
-						#print(fixedurl)
-					if 'url("' in style:
+					elif 'url("' in style:
 						url = style.split('url("')[1].split('")')[0]
+					elif 'url(' in style:
+						url = style.split('url(')[1].split(')')[0]
+					
+					if url:
 						fixedurl = url.replace("\\3a ", ":").replace("\\3d ", "=").replace("\\26 ", "&").replace(r"\25 3A", ":").replace(r"\25 2F", "/")
-						#print(fixedurl)
-
+					
 					if fixedurl:
 						print_info("Downloading misc "+color(fixedurl, colors.GREEN))
 						
@@ -394,12 +443,12 @@ def fix(path, id, headers, cookies):
 						ext = ext.split(".")[-1]
 						#print(ext)
 
-						if ext not in ["gif", "jpg", "jpeg", "png"]:
+						if ext not in ["gif", "jpg", "jpeg", "png", "webp"]:
 							ext = "jpg"
 
 						mediapath = "media/"+sha(fixedurl)+"."+ext
 						if not os.path.exists(path+mediapath):
-							bytes = requests.get(fixedurl, headers=headers, cookies=cookies).content
+							bytes = session.get(fixedurl, headers=headers, cookies=cookies).content
 							with open(path+mediapath, "wb+") as f:
 								f.write(bytes)
 								
@@ -407,10 +456,13 @@ def fix(path, id, headers, cookies):
 
 		for video in soup("video")[:]:
 			divv = soup.new_tag("div")
-			divv['style'] = "width: 100%; height: auto; display: block; border-radius: 20px; border: none; box-shadow: 0px 20px 25px rgba(0, 0, 0, 0.1); overflow: hidden; position: relative;"
-			video['style'] = "max-width: 100%; height: auto; width: 100%; position: relative; left: 0; top: 0; opacity: 1; display: inline-block;"
+			video['style'] = "max-width: 100%; height: auto; max-height: 500px; width: 100%; position: relative; left: 0; top: 0; opacity: 1; display: inline-block;"
 			video.parent.append(divv)
 			divv.append(video)
+			if divv.parent.parent.parent.name == "section": #sorry
+				divv['style'] = "margin: 20px; width: calc(100%-40px); margin-bottom: 15px; height: auto; display: block; border-radius: 20px; border: none; box-shadow: 0px 20px 35px rgba(0, 0, 0, 0.05); overflow: hidden; position: relative;"
+			else:
+				divv['style'] = "width: 100%; height: auto; display: block; border-radius: 20px; border: none; box-shadow: 0px 20px 35px rgba(0, 0, 0, 0.05); overflow: hidden; position: relative;"
 			#video.decompose()
 
 		if not found_comments:
@@ -450,7 +502,9 @@ def fix(path, id, headers, cookies):
 		style = f.read()
 		
 	repl = {}
-		
+	
+	session = requests.Session()
+	
 	for url in re.findall(r'url\(\s*(.*?)\s*\)', style):
 		if url in repl: continue
 		if not url.startswith("data:"):
@@ -482,7 +536,7 @@ def fix(path, id, headers, cookies):
 
 					print_info("Downloading css img "+color(src, colors.GREEN)+" -> "+sha_url)
 					if not os.path.exists(path+mediapath):
-						bytess = requests.get(src, headers=headers_img).content
+						bytess = session.get(src, headers=headers_img).content
 						ICON_CACHE[url] = bytess
 					else:
 						with open(path+mediapath, "rb") as f:
@@ -507,5 +561,12 @@ def fix(path, id, headers, cookies):
 
 	with open(path+"index.html", "w", encoding="utf-8") as f:
 		f.write(final)
+
+	# now lets count comments
+	elements_count = 0
+	for el in soup.find_all("div", attrs={"class": "_2b04"}):
+		elements_count += 1
 		
-	os.remove(path+"index_dirty.html")
+	return elements_count
+		
+	#os.remove(path+"index_dirty.html")

@@ -294,7 +294,7 @@ def get_post_timestamp(post_id):
 		print_error("get_post_timestamp rate limit")
 		exit()
 	if '"creation_time":' not in content:
-		print_error("creation_time not found in response.")
+		print_error("creation_time not found in response. rate limit?")
 		print_debug(content)
 		exit()
 	arr = content.split('"creation_time":')
@@ -557,7 +557,8 @@ def	parse_element(element, nowtime):
 					medias.append(result)
 			else:
 				print_error("No video url")
-				exit()
+				if not shared_post:
+					exit()
 	
 	#"2021-01-08T11:46:46+0000"
 	created_time = ts.strftime("%Y-%m-%dT%H:%M:%S")+"+0100" 
@@ -578,7 +579,10 @@ def	parse_element(element, nowtime):
 	if not wrong_name and old_full_name != None:
 		full_name = old_full_name
 
+	dumped_at = int(time.time())
+
 	obj = {
+		"dumped_at": str(dumped_at),
 		"timestamp": str(timestamp),
 		"created_time": created_time,
 		"id": post_id,
@@ -774,7 +778,7 @@ if __name__ == "__main__":
 					os._exit(0)
 				except ParseException as e:
 					nowtime += 180
-					print_error("Parse exception, retry")
+					print_error("Parse exception, retry. Sleeping for 10 secs.")
 					time.sleep(10)
 			if all_skipped:
 				nowtime -= 15 * 60;
