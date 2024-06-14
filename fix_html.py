@@ -397,13 +397,14 @@ def fix(path, id, headers, cookies):
 	
 		for el in soup('img')[:]:
 			src = el["src"]
-			print_info("Downloading image "+color(src, colors.GREEN))
-			mediapath = "media/"+sha(src)+".jpg"
-			if not os.path.exists(path+mediapath):
-				bytes = session.get(src, headers=headers, cookies=cookies).content
-				with open(path+mediapath, "wb+") as f:
-					f.write(bytes)
-			el['src'] = "./"+mediapath
+			if not src.startswith("data:image"):
+				print_info("Downloading image "+color(src, colors.GREEN))
+				mediapath = "media/"+sha(src)+".jpg"
+				if not os.path.exists(path+mediapath):
+					bytes = session.get(src, headers=headers, cookies=cookies).content
+					with open(path+mediapath, "wb+") as f:
+						f.write(bytes)
+				el['src'] = "./"+mediapath
 
 		for el in soup('video')[:]:
 			src = el["src"]

@@ -398,7 +398,7 @@ def	parse_element(session, element, nowtime):
 			from_id = element.split("story_id=S%3A_I")[1].split("%")[0] #better method
 	
 	for file, old_obj in SAVED_POSTS_OBJ.items():
-		if old_obj.get("message", "NULL") == message and old_obj["from"].get("id", "99999") == from_id:
+		if old_obj["id"] == post_id and old_obj["from"].get("id", "99999") == from_id:
 			print_info(color("Found json match! "+file, colors.GRAY))
 			timestamp = old_obj["timestamp"]
 			found_date = True
@@ -426,13 +426,6 @@ def	parse_element(session, element, nowtime):
 
 	wrong_name = False
 	old_full_name = None
-
-	if found_date == False:
-		if "page_insights" in data:
-			timestamp = data["page_insights"][GROUP_ID]["post_context"]["publish_time"]
-			found_date = True
-		else:
-			timestamp = 0
 
 	if found_date == False:
 		timestamp = get_post_timestamp(session, post_id, nowtime)
