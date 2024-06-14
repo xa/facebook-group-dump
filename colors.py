@@ -15,19 +15,19 @@ import os, re, shutil, threading, inspect, time, random
 
 ##################################################################
 # ENVVARS
-#	
+#
 #  defaults to yes
-#   log_fatal=yes/no  - prints fatal errors 
-#   log_success=yes/no  - prints success messages 
-#   log_error=yes/no  - prints error messages 
-#   log_warn=yes/no  - prints error messages 
-#   log_info=yes/no  - prints debug messages 
-#   log_last=yes/no  - prints last line messages
+#   log_fatal=yes/no    -  prints fatal errors
+#   log_success=yes/no  -  prints success messages
+#   log_error=yes/no    -  prints error messages
+#   log_warn=yes/no     -  prints warn messages
+#   log_info=yes/no     -  prints info messages
+#   log_last=yes/no     -  prints last line messages
 #
 #  defaults to no:
-#   log_debug=yes/no  - prints debug messages
-#   log_temp=yes/no  - prints temp messages
-#   log_spam=yes/no  - prints spam messages
+#   log_debug=yes/no    -  prints debug messages
+#   log_temp=yes/no     -  prints temp messages
+#   log_spam=yes/no     -  prints spam messages
 #
 #    --- misc ---
 #
@@ -155,7 +155,7 @@ def print_info(s, align=aligns.LEFT, autocolor=None, print_caller=False):
 		_print(s, prefix=prefixes.INFO, align=align, autocolor=autocolor, print_caller=print_caller)
 
 def print_debug(s, align=aligns.LEFT, autocolor=None, print_caller=False):
-	if _env_bool("log_debug", False):
+	if _env_bool("log_debug", False) or _env_bool("debug", False):
 		_print(s, prefix=prefixes.DEBUG, align=align, autocolor=autocolor, print_caller=print_caller)
 
 def print_temp(s, align=aligns.LEFT, autocolor=None, print_caller=False):
