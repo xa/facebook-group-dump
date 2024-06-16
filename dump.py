@@ -265,7 +265,7 @@ def parse_uid_from_profile(url):
 	return uid
 
 def get_post_timestamp(session, post_id, nowtime):
-	print_info("Post timestamp fallback "+color(post_id, colors.GRAY))
+	print_debug("Post timestamp fallback "+color(post_id, colors.GRAY))
 	
 	#url = 'https://www.facebook.com/story.php/?id='+GROUP_ID+'&story_fbid='+post_id
 	url = "https://www.facebook.com/groups/"+GROUP_ID+"/posts/"+post_id+"/"
@@ -312,6 +312,7 @@ saved_posts = []
 
 def	parse_element(session, element, nowtime):
 	global saved_posts
+	
 	data = json.loads(html.unescape(element.split(' data-ft="')[1].split('"')[0]))
 	#print(element)
 	from_id = None
@@ -321,6 +322,8 @@ def	parse_element(session, element, nowtime):
 	if post_id in saved_posts:
 		print_debug("Post "+post_id+" was already saved.")
 		return False
+
+	print()
 
 	full_name = element.split("<strong>")[1].split("</strong>")[0].replace("<span>", "").replace("</span>", "").replace("<wbr />", "").replace('<span class="word_break">', "")
 	full_name = full_name.split(">")[1].split("<")[0]
@@ -455,14 +458,17 @@ def	parse_element(session, element, nowtime):
 		if "comments_count" in json_obj:
 			old_full_name = json_obj["from"]["name"]
 			old_medias = json_obj["medias"]
+			old_timestamp = datetime.fromtimestamp(int(json_obj["timestamp"]))
+			old_date = old_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+			old_reactions = json_obj["reactions"]
 			medias_exists_flag = True
 			for old_media in old_medias:
 				if not os.path.exists(DIRECTORY+"medias/"+old_media):
 					medias_exists_flag = False
 			old_total_reactions = 0
-			for k, v in json_obj["reactions"].items():
+			for k, v in old_reactions.items():
 				old_total_reactions += v
-			old_comments = json_obj["comments_count"]
+			old_comments_count = json_obj["comments_count"]
 			skip_post = True
 			if "avatar" not in json_obj["from"] or ".jpg" not in json_obj["from"]["avatar"] or not os.path.exists(DIRECTORY+"avatars/"+json_obj["from"]["avatar"]):
 				saved_posts.append(post_id)
@@ -486,17 +492,28 @@ def	parse_element(session, element, nowtime):
 				skip_post = False
 				print_info(color("Post "+post_id+" is saved but has no reactions ("+str(total)+") or comments ("+str(old_comments)+"). Resaving.", colors.BLUE))
 			el"""
-			if reactions_count > old_total_reactions or comments_count > old_comments:
+			if reactions_count > old_total_reactions:			
 				saved_posts.append(post_id)
 				if skip_post: print()
 				skip_post = False
-				print_info(color("Post "+post_id+" reactions or comments mismatch. Reactions: "+str(reactions_count)+"/"+str(total)+". Comments "+str(comments_count)+"/"+str(old_comments)+". Resaving.", colors.BLUE))
+				print_info(color("Post "+post_id+" reactions mismatch. Reactions: "+str(reactions_count)+"/"+str(old_total_reactions)+". Resaving.", colors.BLUE))
+			else:
+				reactions = old_reactions
+			
+			if comments_count > old_comments_count:			
+				saved_posts.append(post_id)
+				if skip_post: print()
+				skip_post = False
+				print_info(color("Post "+post_id+" comments mismatch. Comments "+str(comments_count)+"/"+str(old_comments_count)+". Resaving.", colors.BLUE))
+			else:
+				comments_count = old_comments_count
+			
 			if skip_post:
 				saved_posts.append(post_id)
-				print_info(color("Post "+post_id+" (", colors.LIGHT_GRAY)+color(old_full_name, colors.WHITE)+color(") was already saved and contains all data.", colors.LIGHT_GRAY))
+				print_info(color("Post "+post_id+" (", colors.LIGHT_GRAY)+color(old_full_name+", "+old_date, colors.WHITE)+color(") was already saved and contains all data.", colors.LIGHT_GRAY))
 				return False
 	else:
-		print()
+		#print()
 		print_ok(color("New post found!", colors.GREEN))
 
 	print_info(color(full_name + " " + timestamp_clean, colors.YELLOW)+color(" (" + post_id + ") ", colors.LIGHT_GRAY)+color(post_type, colors.PURPLE))
