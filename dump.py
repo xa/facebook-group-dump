@@ -81,6 +81,8 @@ def save_photo(photo):
 	except KeyboardInterrupt:
 		raise KeyboardInterrupt
 	except:
+		traceback.print_exc()
+		exit()
 		return None
 
 def save_video(video_url):
@@ -435,6 +437,7 @@ def	parse_element(session, element, nowtime):
 	ts = datetime.fromtimestamp(int(timestamp))
 	timestamp_clean = ts.strftime("%Y-%m-%d %H:%M:%S")
 	date_clean = ts.strftime("%Y-%m-%d")
+	set_windows_title(group_name + " / " + account_name + " / " + timestamp_clean)
 
 	json_path = DIRECTORY+"json/"+date_clean+"/"+post_id+".json"
 	json_path_2 = DIRECTORY+"json/"+date_clean+"/"+GROUP_ID+"_"+post_id+".json"
@@ -456,9 +459,9 @@ def	parse_element(session, element, nowtime):
 			for old_media in old_medias:
 				if not os.path.exists(DIRECTORY+"medias/"+old_media):
 					medias_exists_flag = False
-			total = 0
+			old_total_reactions = 0
 			for k, v in json_obj["reactions"].items():
-				total += v
+				old_total_reactions += v
 			old_comments = json_obj["comments_count"]
 			skip_post = True
 			if "avatar" not in json_obj["from"] or ".jpg" not in json_obj["from"]["avatar"] or not os.path.exists(DIRECTORY+"avatars/"+json_obj["from"]["avatar"]):
@@ -483,7 +486,7 @@ def	parse_element(session, element, nowtime):
 				skip_post = False
 				print_info(color("Post "+post_id+" is saved but has no reactions ("+str(total)+") or comments ("+str(old_comments)+"). Resaving.", colors.BLUE))
 			el"""
-			if total > reactions_count or comments_count > old_comments:
+			if reactions_count > old_total_reactions or comments_count > old_comments:
 				saved_posts.append(post_id)
 				if skip_post: print()
 				skip_post = False
@@ -665,6 +668,10 @@ def write_avatar_defaults():
 		with open(DIRECTORY+"avatars/default.jpg", "wb+") as f:
 			f.write(base64.b64decode(default_b64))
 
+def get_group_creation_timestamp():
+	#todo
+	return 0
+
 SAVED_POSTS_OBJ = {}
 
 if __name__ == "__main__":	
@@ -723,7 +730,7 @@ if __name__ == "__main__":
 		group_name = group_name[:-1]
 		group_name = group_name.split("/")[-1]
 
-	set_windows_title("Dump: " + group_name + ", account " + account_name + ", started at " + nowts_formatted)
+	set_windows_title(group_name + " / " + account_name + " / " + nowts_formatted)
 
 	saved_timestamp_path = DIRECTORY+"stopped_at.txt"
 	saved_group_id_path = DIRECTORY+"group_id.txt"
@@ -758,8 +765,8 @@ if __name__ == "__main__":
 
 	print_ok("Dumping group "+color(GROUP_ID, colors.YELLOW)+" using "+color(account_name, colors.YELLOW))
 	print()
-	
-	points=[]
+
+	group_creation_timestamp = get_group_creation_timestamp()
 
 	for dir in os.listdir(DIRECTORY+"json"):
 		if not os.path.isdir(DIRECTORY+"json/"+dir): continue
@@ -771,12 +778,7 @@ if __name__ == "__main__":
 			
 			json_obj = {}
 			with open(json_path, "r", encoding="utf-8") as f:
-				json_obj = json.loads(f.read())
-				
-				ts = int(json_obj["timestamp"])
-				id = int(json_obj["id"])
-				points.append((id, ts))
-				
+				json_obj = json.loads(f.read())			
 				SAVED_POSTS_OBJ[json_path] = json_obj
 
 	print_info(str(len(SAVED_POSTS_OBJ))+" posts already dumped.")
@@ -791,6 +793,7 @@ if __name__ == "__main__":
 			#time.sleep(0.5)
 			#print()
 			print_info(color("Dumping posts from ", colors.GREEN)+color(formatted_ts, colors.YELLOW)+color(", "+fromts, colors.DARK_GRAY))
+			set_windows_title(group_name + " / " + account_name + " / " + formatted_ts)
 			while True:
 				try:
 					url = ('https://mbasic.facebook.com/groups/'+GROUP_ID+'?bacr='+str(nowtime)+'%3A951077175399046%3A951077175399046%2C0%2C3%3A7%3AQWE9PSs%3D')
