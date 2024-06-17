@@ -17,6 +17,13 @@ from selenium.webdriver.chrome.options import Options
 from selenium import webdriver
 from PIL import Image
 
+def set_windows_title(s):
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleTitleW(s)
+    except:
+        pass
+
 headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/114.0',
     'Accept': 'image/avif,image/webp,*/*',
@@ -88,6 +95,14 @@ def dump_date(driver, date, post_id, json_obj):
 	ur = "https://m.facebook.com/groups/"+GROUP_ID+"?view=permalink&id="+post_id+"&comment_option=toplevel"
 	print_info(ur)
 	driver.get(ur)
+	
+	content = driver.page_source
+	if "Zezwolić na użycie plików cookie z Facebook w tej przeglądarce?" in content:
+		print_fatal("Burned session (cookies not accepted)")
+		exit()
+	if "Zaloguj się do konta" in content or 'value="Dołącz do grupy"' in content:
+		print_fatal("Burned session (logged out)")
+		exit()
 	
 	#element = driver.find_element(By.NAME, "comment_switcher")
 	
@@ -197,8 +212,8 @@ def dump_date(driver, date, post_id, json_obj):
 #exit()	
 
 def dump_all(driver):
-	for date in reversed(os.listdir(DIRECTORY+"json")):
-	#for file in os.listdir(DIRECTORY+"json"):
+	#for date in reversed(os.listdir(DIRECTORY+"json")):
+	for date in os.listdir(DIRECTORY+"json"):
 		if date != "dates.txt":
 			for js in os.listdir(DIRECTORY+"json/"+date):
 				if js != "posts.txt" and ".json" in js:
@@ -244,7 +259,7 @@ if __name__ == "__main__":
 			DIRECTORY += "/"
 
 		saved_group_id_path = DIRECTORY+"group_id.txt"
-		if GROUP_ID == "unknown" or GROUP_ID == "?" or GROUP_ID == "guess" or GROUP_ID == "idk":
+		if GROUP_ID.lower() in ["unknown", "?", "guess", "idk"]:
 			try:
 				with open(saved_group_id_path) as f:
 					GROUP_ID = f.read().strip()
@@ -261,10 +276,22 @@ if __name__ == "__main__":
 					exit()
 						
 		try:
-			account = __import__(sys.argv[2].replace(".py", ""), globals(), locals(), ['headers', 'cookies'], 0)
+			account_name = sys.argv[2].replace(".py", "")
+
+			if account_name.lower() in ["unknown", "?", "guess", "idk"]:
+				try:
+					with open(cached_account_path) as f:
+						account_name = f.read().strip()
+				except:
+					print_error("No saved account name. Please specify in command line args.")
+					exit()
+					
+			account = __import__(account_name, globals(), locals(), ['headers', 'cookies'], 0)
 
 			headers = account.headers
 			cookies = account.cookies
+		except SystemExit:
+			exit()
 		except:
 			traceback.print_exc()
 			raise ValueError()
@@ -277,6 +304,7 @@ if __name__ == "__main__":
 
 	#print_ok(f"Dumping comments from {GRO‏UP‏_ID‏}")
 	print_ok(bold(color("Dumping comments from "+GROUP_ID+"...‏", colors.GREEN)))
+	set_windows_title("comments.py "+DIRECTORY.split("/")[-2]+" / "+account_name)
 	
 	atexit.register(cleanup_driver)
 	driver = create_driver()

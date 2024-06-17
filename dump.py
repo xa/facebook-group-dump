@@ -4,6 +4,8 @@ from urllib.parse import unquote
 from colors import *
 import print_image
 
+# make frontend use unix ts and calc date with os timezone
+
 TERM_SUPPORTS_24BIT_COLORS = True
 
 def sha(s):
@@ -43,6 +45,14 @@ def url_filename(url):
 	url_ = url.split("?")[0] if "?" in url else url
 	return url_.split("/")[-1]
 
+def time_sleep(s):
+	a = s
+	delay = 0.1
+	while a > 0:
+		print_last("Sleeping for "+color("{:.1f}s".format(max(0, a)), colors.GRAY))
+		a -= delay
+		time.sleep(delay)
+
 def save_url(url, prefix):
 	filename = url_filename(url)
 	path = prefix+filename
@@ -66,15 +76,20 @@ def save_url(url, prefix):
 
 def save_photo(photo):
 	print_debug("Saving photo "+photo)
+	time_sleep(2)
 	url = "https://mbasic.facebook.com/photo/view_full_size/?fbid="+photo
-	rsp = session.get(url, cookies=cookies, headers=headers, allow_redirects=False)
+	rsp = requests.get(url, cookies=cookies, headers=headers, allow_redirects=False)
 	content = rsp.content.decode()
 	if "Możliwość korzystania przez Ciebie z tej funkcji została tymczasowo zablokowana." in content:
-		print_error(color("save_photo rate limit", colors.RED))
+		print_fatal(color("save_photo rate limit", colors.RED))
+		time_sleep(600)
 		exit()
 	try:
-		#print(url)
-		#print(content)
+		print_debug(url)
+		print_debug(content)
+		if "<title>Ten wątek jest pusty</title>" in content:
+			print_warning("Photo deleted / you don't have access")
+			return None
 		photo_url = content.split('meta http-equiv="refresh" content="0;url=')[1].split('"')[0]
 		photo_url = html.unescape(photo_url)
 		return save_url(photo_url, DIRECTORY+"medias/")
@@ -156,7 +171,8 @@ def download_pfp(profile_id_int):
 	if profile_id not in saved_pfps:
 		content = session.get("https://mbasic.facebook.com/profile/picture/view/?profile_id="+profile_id, cookies=cookies, headers=headers).content.decode()
 		if "Możliwość korzystania przez Ciebie z tej funkcji została tymczasowo zablokowana." in content:
-			print_error(color("download_pfp rate limit", colors.RED))
+			print_fatal(color("download_pfp rate limit", colors.RED))
+			time_sleep(600)
 			exit()
 		#print(content)
 		src = None
@@ -274,7 +290,8 @@ def get_post_timestamp(session, post_id, nowtime):
 	response = session.get(url, cookies=cookies, headers=headers)
 	content = response.content.decode()
 	if "Wygląda na to, że ta funkcja była przez " in content:
-		print_error("get_post_timestamp rate limit")
+		print_fatal("get_post_timestamp rate limit")
+		time_sleep(600)
 		exit()
 	if '"creation_time":' not in content:
 		print_error("creation_time not found in response. Rate limit?")
@@ -437,7 +454,7 @@ def	parse_element(session, element, nowtime):
 		if timestamp != 0:
 			found_date = True
 
-	ts = datetime.fromtimestamp(int(timestamp))
+	ts = datetime.utcfromtimestamp(int(timestamp))
 	timestamp_clean = ts.strftime("%Y-%m-%d %H:%M:%S")
 	date_clean = ts.strftime("%Y-%m-%d")
 	set_windows_title(group_name + " / " + account_name + " / " + timestamp_clean)
@@ -454,11 +471,13 @@ def	parse_element(session, element, nowtime):
 		json_obj = json.loads(f.read())
 		json_found = True
 
+	medias_exists_flag = False
+
 	if json_found:
 		if "comments_count" in json_obj:
 			old_full_name = json_obj["from"]["name"]
 			old_medias = json_obj["medias"]
-			old_timestamp = datetime.fromtimestamp(int(json_obj["timestamp"]))
+			old_timestamp = datetime.utcfromtimestamp(int(json_obj["timestamp"]))
 			old_date = old_timestamp.strftime("%Y-%m-%d %H:%M:%S")
 			old_reactions = json_obj["reactions"]
 			medias_exists_flag = True
@@ -523,43 +542,41 @@ def	parse_element(session, element, nowtime):
 	post_type = "unknown"
 
 	#save medias
-	els = element.split('href="')
-	
-	for e in els:
-		url = e.split('"')[0]
-		if 'href="/photos/' in url:
-			photoid = url.split('/')[4].replace("?", "").replace("&", "")
-			result = save_photo(photoid)
-			if result != None:
-				medias.append(result)
-		if '/photo.php?fbid=' in url:
-			photoid = url.split('/photo.php?fbid=')[1].split("&")[0]
-			result = save_photo(photoid)
-			if result != None:
-				medias.append(result)
-		if '/video_redirect/' in url:
-			video_real = unquote(url.split('/video_redirect/?src=')[1].split('"')[0])
-			print_debug(video_real)
-			result = save_video(video_real)
-			if result != None:
-				medias.append(result)
-		if 'https://mbasic.facebook.com/' in url and "permalink" in url and "permalink/"+post_id not in url:
-			print_debug(url)
-			c = session.get(url, cookies=cookies, headers=headers).content.decode()
-			if 'href="/video_redirect/' in c:
-				video_real = unquote(c.split('href="/video_redirect/?src=')[1].split('"')[0])
+	if not medias_exists_flag:
+		els = element.split('href="')
+		
+		for e in els:
+			url = e.split('"')[0]
+			if 'href="/photos/' in url:
+				photoid = url.split('/')[4].replace("?", "").replace("&", "")
+				result = save_photo(photoid)
+				if result != None:
+					medias.append(result)
+			if '/photo.php?fbid=' in url:
+				photoid = url.split('/photo.php?fbid=')[1].split("&")[0]
+				result = save_photo(photoid)
+				if result != None:
+					medias.append(result)
+			if '/video_redirect/' in url:
+				video_real = unquote(url.split('/video_redirect/?src=')[1].split('"')[0])
 				print_debug(video_real)
 				result = save_video(video_real)
 				if result != None:
 					medias.append(result)
-			else:
-				print_error("No video url")
-				if not shared_post:
-					exit()
+			if 'https://mbasic.facebook.com/' in url and "permalink" in url and "permalink/"+post_id not in url:
+				print_debug(url)
+				c = session.get(url, cookies=cookies, headers=headers).content.decode()
+				if 'href="/video_redirect/' in c:
+					video_real = unquote(c.split('href="/video_redirect/?src=')[1].split('"')[0])
+					print_debug(video_real)
+					result = save_video(video_real)
+					if result != None:
+						medias.append(result)
+				else:
+					print_error("No video url")
+					if not shared_post:
+						exit()
 	
-	#"2021-01-08T11:46:46+0000"
-	created_time = ts.strftime("%Y-%m-%dT%H:%M:%S")+"+0100" 
-
 	for l in message.splitlines():
 		print(color("    "+l, colors.WHITE))
 	#print(post_type)
@@ -581,7 +598,6 @@ def	parse_element(session, element, nowtime):
 	obj = {
 		"dumped_at": str(dumped_at),
 		"timestamp": str(timestamp),
-		"created_time": created_time,
 		"id": post_id,
 		"message": message,
 		"from": {
@@ -620,7 +636,7 @@ def	parse_element(session, element, nowtime):
 				posts_list = f.read()
 				if not posts_list.endswith("\n"):
 					posts_list = posts_list + "\n"
-		posts_list = posts_list + post_id + "," + full_name + "," + created_time + "\n"
+		posts_list = posts_list + post_id + "," + full_name + "," + str(timestamp) + "\n"
 		posts_list_arr = sorted(posts_list.splitlines())
 		posts_list = "\n".join(posts_list_arr)
 		with open(posts_list_path, "w+", encoding='utf-8') as f:
@@ -644,8 +660,9 @@ def parse(session, content, nowtime):
 		print_debug(content)
 		exit()	
 	if "Wygląda na to, że ta funkcja była przez Ciebie wykorzystywana w zbyt szybki, niewłaściwy sposób. Możliwość korzystania z niej została w Twoim przypadku tymczasowo zablokowana." in content:
-		print_error(color("Rate limit!", colors.RED))
+		print_fatal(color("Rate limit!", colors.RED))
 		print_debug(content)
+		time_sleep(300)
 		exit()
 	if len(arr) <= 2:
 		print_error("No posts in response. End of posts?")
@@ -715,6 +732,8 @@ if __name__ == "__main__":
 
 			headers = account.headers
 			cookies = account.cookies
+		except SystemExit:
+			exit()
 		except:
 			traceback.print_exc()
 			raise ValueError()
@@ -739,7 +758,7 @@ if __name__ == "__main__":
 			dates_list = f.read().strip().splitlines()
 
 	nowtime = int(time.time())
-	nowts_formatted = datetime.fromtimestamp(nowtime).strftime("%Y-%m-%d %H:%M:%S")
+	nowts_formatted = datetime.utcfromtimestamp(nowtime).strftime("%Y-%m-%d %H:%M:%S")
 	print_ok("Started at "+color(nowts_formatted, colors.YELLOW))
     
 	group_name = DIRECTORY
@@ -772,10 +791,10 @@ if __name__ == "__main__":
 
 	fast_mode = False
 
-	if len(sys.argv) > 4 and sys.argv[4] == "fast":
+	if len(sys.argv) > 4 and "fast" in sys.argv[4]:
 		fast_mode = True
 	
-	if not (len(sys.argv) > 4 and sys.argv[4] == "reset"):
+	if not (len(sys.argv) > 4 and "reset" in sys.argv[4]):
 		if os.path.exists(saved_timestamp_path):
 			with open(saved_timestamp_path) as f:
 				nowtime = int(f.read().strip())
@@ -805,7 +824,7 @@ if __name__ == "__main__":
 	try:
 		while True:
 			fromts = str(nowtime)
-			formatted_ts = datetime.fromtimestamp(nowtime).strftime("%Y-%m-%d %H:%M:%S") 
+			formatted_ts = datetime.utcfromtimestamp(nowtime).strftime("%Y-%m-%d %H:%M:%S") 
 			#fromts = "1598950034"
 			#time.sleep(0.5)
 			#print()
