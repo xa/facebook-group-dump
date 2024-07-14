@@ -74,17 +74,32 @@ def dump_date(driver, date, post_id, json_obj):
 			# open json of post and check if index.html contains text post
 			with open(path+"index.html", encoding="utf8") as f:
 				st = f.read()
+				if "Post deleted" in st:
+					print_warning("Post deleted "+path)
+					flag = False
+				if "No comments" in st:
+					pass
+					#print_warning("No comments "+path)
+					#flag = False		
 				if "Wygląda na to, że ta funkcja była przez Ciebie wykorzystywana w zbyt szybki, niewłaściwy sposób. Możliwość korzystania z niej została w Twoim przypadku tymczasowo zablokowana." in st:
 					print_error("Rate limited "+path)
 					flag = False
-
+				elif "Te materiały nie są teraz dostępne" in st:
+					print_error("Post removed "+path)
+					return True
+				elif "Podejrzewamy, że na twoim ‏Twoim koncie miało miejsce zachowanie zautomatyzowane" in st:
+					print_error("Post saved with burned session (botguard) "+str(post_id))					
+					flag = False
+				elif "Korzystasz z przeglądarki, która nie jest" in st:
+					print_error("Post saved with burned session (relog) "+str(post_id))
+					flag = False
 			#with open(path+"index.html", "w", encoding="utf8") as f:
 			#	f.write(st.replace("width:40px;height:40px; top:9px", "width:40px;height:40px;"))
 
 			if os.path.exists(path+"media") and flag:
 				files = os.listdir(path+"media")
 				if len(files) > 0:
-					print_warning(path+" exists!")
+					print_info(path+" exists!")
 					return False
 
 	print()
@@ -99,15 +114,32 @@ def dump_date(driver, date, post_id, json_obj):
 	content = driver.page_source
 	if "Zezwolić na użycie plików cookie z Facebook w tej przeglądarce?" in content:
 		print_fatal("Burned session (cookies not accepted)")
-		exit()
+		time_sleep(10)
+		os_exit(0)
+	if "Korzystasz z przeglądarki, która nie jest" in content:
+		print_fatal("Burned session (relog)")
+		time_sleep(10)
+		os_exit(0)
+	if "Podejrzewamy, że na twoim ‏Twoim koncie miało miejsce zachowanie zautomatyzowane" in content:
+		print_fatal("Burned session (botguard)")
+		time_sleep(10)
+		os_exit(0)
 	if "Zaloguj się do konta" in content or 'value="Dołącz do grupy"' in content:
 		print_fatal("Burned session (logged out)")
-		exit()
-	
+		time_sleep(10)
+		os_exit(0)
+	#if "Te materiały nie są teraz dostępne" in content:
+	#	print_error("Post removed")
+	#	return False
+		
 	#element = driver.find_element(By.NAME, "comment_switcher")
 	
 	#time_sleep(1000)
-	element = driver.find_element(By.ID, "viewport")
+	try:
+		element = driver.find_element(By.ID, "viewport")
+	except:
+		print_error("No viewport")
+		return
 	#time_sleep(100)
 	
 	clicks = 0
@@ -212,7 +244,7 @@ def dump_date(driver, date, post_id, json_obj):
 #exit()	
 
 def dump_all(driver):
-	#for date in reversed(os.listdir(DIRECTORY+"json")):
+#	for date in reversed(os.listdir(DIRECTORY+"json")):
 	for date in os.listdir(DIRECTORY+"json"):
 		if date != "dates.txt":
 			for js in os.listdir(DIRECTORY+"json/"+date):
@@ -238,7 +270,8 @@ def dump_all(driver):
 							 os_exit(0)
 						except:
 							traceback.print_exc()
-			
+	print_ok("All posts checked.")
+	
 def cleanup_driver():
 	try:
 		if driver:
@@ -259,12 +292,15 @@ if __name__ == "__main__":
 			DIRECTORY += "/"
 
 		saved_group_id_path = DIRECTORY+"group_id.txt"
+		cached_account_path = DIRECTORY+"cached_account.txt"
+
 		if GROUP_ID.lower() in ["unknown", "?", "guess", "idk"]:
 			try:
 				with open(saved_group_id_path) as f:
 					GROUP_ID = f.read().strip()
 					#print(GROUP_ID)
 			except:
+				traceback.print_exc()
 				print_error("No saved group id. Please specify in command line args.")
 				exit()
 				

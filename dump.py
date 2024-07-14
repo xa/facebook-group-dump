@@ -1,8 +1,9 @@
-import requests, html, json, sys, io, time, re, math, os, traceback, base64, hashlib
+import requests, html, json, sys, io, time, re, math, os, traceback, base64, hashlib, atexit
 from datetime import datetime
 from urllib.parse import unquote
 from colors import *
 import print_image
+#import cookies.account_xan as account2
 
 # make frontend use unix ts and calc date with os timezone
 
@@ -60,30 +61,40 @@ def save_url(url, prefix):
 	if ".jpg" in filename or ".gif" in filename or ".bmp" in filename or ".png" in filename:
 		photo = True
 	if not os.path.exists(path):
-		with open(path, "wb") as f:
-			f.write(session.get(url).content)
-		print_ok("Saved "+filename)
+		content = session.get(url).content
+		if len(content) > 0:
+			with open(path, "wb") as f:
+				f.write(content)
+			print_ok("Saved "+filename)
+		else:
+			print_warning("Photo weights 0 bytes")
+			os_exit(0)
 	else:
 		print_info("Media already saved. "+filename)
-		
+	
 	if photo and os.path.exists(path):
 		with open(path, "rb") as f:
 			b = f.read()
 			print()
-			print_image.print_bytes(b, scale=0.7, margin=7, truecolor=TERM_SUPPORTS_24BIT_COLORS)
-		
+			try:
+				print_image.print_bytes(b, scale=0.7, margin=7, truecolor=TERM_SUPPORTS_24BIT_COLORS)
+			except KeyboardInterrupt:
+				os_exit(0)
+			except:
+				traceback.print_exc()
+				print_warning("Image corrupted")
 	return filename
 
 def save_photo(photo):
 	print_debug("Saving photo "+photo)
-	time_sleep(2)
+	#time_sleep(10+random.randint(1,100)/10)
 	url = "https://mbasic.facebook.com/photo/view_full_size/?fbid="+photo
 	rsp = requests.get(url, cookies=cookies, headers=headers, allow_redirects=False)
 	content = rsp.content.decode()
 	if "Możliwość korzystania przez Ciebie z tej funkcji została tymczasowo zablokowana." in content:
 		print_fatal(color("save_photo rate limit", colors.RED))
 		time_sleep(600)
-		exit()
+		os_exit(0)
 	try:
 		print_debug(url)
 		print_debug(content)
@@ -97,7 +108,7 @@ def save_photo(photo):
 		raise KeyboardInterrupt
 	except:
 		traceback.print_exc()
-		exit()
+		os_exit(0)
 		return None
 
 def save_video(video_url):
@@ -113,6 +124,8 @@ def reconstruct_reactions(element):
     
 	try:
 		reactions_count = int(fixed.split(" reakcji, w tym")[0].split('aria-label="')[-1])
+	except KeyboardInterrupt:
+		os_exit(0)
 	except:
 		return {"like": 0, "love": 0, "wow": 0, "haha": 0, "sad": 0, "anger": 0, "care": 0}
 	
@@ -169,17 +182,19 @@ saved_pfps = {}
 def download_pfp(profile_id_int):
 	profile_id = str(profile_id_int)
 	if profile_id not in saved_pfps:
-		content = session.get("https://mbasic.facebook.com/profile/picture/view/?profile_id="+profile_id, cookies=cookies, headers=headers).content.decode()
+		content = requests.get("https://mbasic.facebook.com/profile/picture/view/?profile_id="+profile_id, cookies=cookies, headers=headers).content.decode()
 		if "Możliwość korzystania przez Ciebie z tej funkcji została tymczasowo zablokowana." in content:
 			print_fatal(color("download_pfp rate limit", colors.RED))
 			time_sleep(600)
-			exit()
+			os_exit(0)
 		#print(content)
 		src = None
 		
 		try:
 			if 'src="https://scontent' in content:
 				src = "https://scontent"+unquote(content.split('src="https://scontent')[1].split('"')[0]).replace('&amp;', "&")
+		except KeyboardInterrupt:
+			os_exit(0)
 		except:
 			print_warning("Pfp fallback!")
 			try:
@@ -187,6 +202,8 @@ def download_pfp(profile_id_int):
 					for imgs in content.split('<img'):
 						if 'width="320" height="320"' in imgs:
 							src = unquote(imgs.split('src="')[1].split('"')[0]).replace('&amp;', "&")
+			except KeyboardInterrupt:
+				os_exit(0)
 			except:
 				src = None
 				
@@ -236,7 +253,7 @@ def download_pfp(profile_id_int):
 				print()
 				print_image.print_bytes(f.read(), scale=0.3, margin=17, truecolor=TERM_SUPPORTS_24BIT_COLORS)
 	
-			#exit()
+			#os_exit(0)
 	else:
 		if ".jpg" in saved_pfps[profile_id]:
 			with open(DIRECTORY+"avatars/"+saved_pfps[profile_id], "rb") as f:
@@ -272,12 +289,14 @@ def parse_uid_from_profile(url):
 		print_debug("Parsed userid: "+str(uid))
 
 		cached_uids[url_short] = uid
+	except KeyboardInterrupt:
+		os_exit(0)
 	except:
 		traceback.print_exc()
 		print_debug(content)
 	if uid == None:
 		print_error("Couldn't get uid for "+url)
-		exit()
+		os_exit(0)
 	return uid
 
 def get_post_timestamp(session, post_id, nowtime):
@@ -292,17 +311,20 @@ def get_post_timestamp(session, post_id, nowtime):
 	if "Wygląda na to, że ta funkcja była przez " in content:
 		print_fatal("get_post_timestamp rate limit")
 		time_sleep(600)
-		exit()
+		os_exit(0)
 	if '"creation_time":' not in content:
-		print_error("creation_time not found in response. Rate limit?")
+		print_error("creation_time not found in response. Rate limit? "+str(post_id))
 		print_debug(content)
-		exit()
+		return 0
+		os_exit(0)
 	arr = content.split('"creation_time":')
 	candidates = []
 	for a in arr:
 		timestamp_s = str(a.split(",")[0])
 		try:
 			timestamp_i = int(timestamp_s)
+		except KeyboardInterrupt:
+			os_exit(0)
 		except:
 			pass
 		#1711808819
@@ -355,7 +377,7 @@ def	parse_element(session, element, nowtime):
 	if len(full_name) <= 1 or "&" in full_name:
 		print_debug(element)
 		print_warning("Empty full_name " + full_name)
-		exit()
+		os_exit(0)
  
 	post_type = data.get("story_attachment_style", "status")
 
@@ -428,10 +450,10 @@ def	parse_element(session, element, nowtime):
 		
 	if post_id == None or len(post_id) < 4:
 		print_error("Bad post_id: "+str(post_id))
-		exit()
+		os_exit(0)
 	if from_id == None or len(from_id) < 4:
 		print_error("Bad from_id: "+str(from_id))
-		exit()
+		os_exit(0)
 
 	print_debug(from_id+", "+post_id)
 
@@ -472,23 +494,36 @@ def	parse_element(session, element, nowtime):
 		json_found = True
 
 	medias_exists_flag = False
+	no_medias = False
+
+	medias = []
+	skip_post = True
+	old_avatar = ""
 
 	if json_found:
 		if "comments_count" in json_obj:
 			old_full_name = json_obj["from"]["name"]
 			old_medias = json_obj["medias"]
+			medias = old_medias
 			old_timestamp = datetime.utcfromtimestamp(int(json_obj["timestamp"]))
 			old_date = old_timestamp.strftime("%Y-%m-%d %H:%M:%S")
 			old_reactions = json_obj["reactions"]
+			old_avatar = json_obj["from"]["avatar"]
 			medias_exists_flag = True
 			for old_media in old_medias:
 				if not os.path.exists(DIRECTORY+"medias/"+old_media):
 					medias_exists_flag = False
+				else:
+					with open(DIRECTORY+"medias/"+old_media, "rb") as f:
+						if len(f.read()) == 0:
+							print_info("Photo "+old_media+" weights 0 bytes")
+							medias_exists_flag = False
+			if len(old_medias) == 0:
+				no_medias = True
 			old_total_reactions = 0
 			for k, v in old_reactions.items():
 				old_total_reactions += v
 			old_comments_count = json_obj["comments_count"]
-			skip_post = True
 			if "avatar" not in json_obj["from"] or ".jpg" not in json_obj["from"]["avatar"] or not os.path.exists(DIRECTORY+"avatars/"+json_obj["from"]["avatar"]):
 				saved_posts.append(post_id)
 				if skip_post: print()
@@ -527,7 +562,7 @@ def	parse_element(session, element, nowtime):
 			else:
 				comments_count = old_comments_count
 			
-			if skip_post:
+			if skip_post and not no_medias:
 				saved_posts.append(post_id)
 				print_info(color("Post "+post_id+" (", colors.LIGHT_GRAY)+color(old_full_name+", "+old_date, colors.WHITE)+color(") was already saved and contains all data.", colors.LIGHT_GRAY))
 				return False
@@ -536,13 +571,13 @@ def	parse_element(session, element, nowtime):
 		print_ok(color("New post found!", colors.GREEN))
 
 	print_info(color(full_name + " " + timestamp_clean, colors.YELLOW)+color(" (" + post_id + ") ", colors.LIGHT_GRAY)+color(post_type, colors.PURPLE))
-	medias = []
 
 	# dirty fix
 	post_type = "unknown"
-
+	
 	#save medias
-	if not medias_exists_flag:
+	if not medias_exists_flag or no_medias:
+		print_info("Resaving medias")
 		els = element.split('href="')
 		
 		for e in els:
@@ -574,9 +609,9 @@ def	parse_element(session, element, nowtime):
 						medias.append(result)
 				else:
 					print_error("No video url")
-					if not shared_post:
-						exit()
-	
+					#if not shared_post:
+					#	os_exit(0)
+
 	for l in message.splitlines():
 		print(color("    "+l, colors.WHITE))
 	#print(post_type)
@@ -586,7 +621,10 @@ def	parse_element(session, element, nowtime):
 	if full_name == "Anonimowy członek grupy":
 		pfp_name = "anon.jpg"
 	else:
-		pfp_name = download_pfp(from_id)
+		if skip_post and json_found and len(old_avatar) > 0:
+			pfp_name = old_avatar
+		else:
+			pfp_name = download_pfp(from_id)
 		
 	print_info(color("Comments: ", colors.LIGHT_GRAY) + color(str(comments_count), colors.GREEN)+color(", Reactions: ", colors.LIGHT_GRAY)+color(str(reactions_count), colors.GREEN))
 
@@ -637,7 +675,7 @@ def	parse_element(session, element, nowtime):
 				if not posts_list.endswith("\n"):
 					posts_list = posts_list + "\n"
 		posts_list = posts_list + post_id + "," + full_name + "," + str(timestamp) + "\n"
-		posts_list_arr = sorted(posts_list.splitlines())
+		posts_list_arr = sorted(list(set(posts_list.splitlines())))
 		posts_list = "\n".join(posts_list_arr)
 		with open(posts_list_path, "w+", encoding='utf-8') as f:
 			f.write(posts_list)
@@ -650,24 +688,24 @@ def parse(session, content, nowtime):
 	if "Strona nie może być wyświetlona w tej chwili. Mogą to być przejściowe problemy, uszkodzony lub wygasły odnośnik lub brak zezwolenia na dostęp." in content:
 		print_fatal(color("Group is banned or you are not member of this group.", colors.RED))
 		print_debug(content)
-		exit()	
+		os_exit(0)	
 	if "Administratorzy tej grupy chcą zadać Ci kilka pytań, zanim zatwierdzą Twoją prośb" in content:
 		print_error(color("Reply to group invite questions.", colors.RED))
 		print_debug(content)
-		exit()
+		os_exit(0)
 	if "Administratorzy otrzymali Twoje odpowiedzi. Otrzymasz powiadomienie, gdy Twoja prośba o dołączenie zostanie zatwierdzona." in content:
 		print_error(color("Wait to be accepted by group administrator.", colors.RED))
 		print_debug(content)
-		exit()	
+		os_exit(0)	
 	if "Wygląda na to, że ta funkcja była przez Ciebie wykorzystywana w zbyt szybki, niewłaściwy sposób. Możliwość korzystania z niej została w Twoim przypadku tymczasowo zablokowana." in content:
 		print_fatal(color("Rate limit!", colors.RED))
 		print_debug(content)
 		time_sleep(300)
-		exit()
+		os_exit(0)
 	if len(arr) <= 2:
 		print_error("No posts in response. End of posts?")
 		print_debug(content)
-		exit()
+		os_exit(0)
 	all_skipped = True
 	for a in arr:
 		if "<article " in a:
@@ -706,6 +744,13 @@ def get_group_creation_timestamp():
 	#todo
 	return 0
 
+def cleanup():
+	print_ok("Bye")
+
+def os_exit(a):
+	cleanup()
+	os._exit(a)
+
 SAVED_POSTS_OBJ = {}
 
 if __name__ == "__main__":	
@@ -724,28 +769,34 @@ if __name__ == "__main__":
 				try:
 					with open(cached_account_path) as f:
 						account_name = f.read().strip()
+				except KeyboardInterrupt:
+					os_exit(0)
 				except:
 					print_error("No saved account name. Please specify in command line args.")
-					exit()
+					os_exit(0)
 
 			account = __import__(account_name, globals(), locals(), ['headers', 'cookies'], 0)
 
 			headers = account.headers
 			cookies = account.cookies
 		except SystemExit:
-			exit()
+			os_exit(0)
 		except:
 			traceback.print_exc()
 			raise ValueError()
+	except KeyboardInterrupt:
+		os_exit(0)
 	except:
 		print()
 		print_info("Usage: python3 "+sys.argv[0]+" <group id> <account> <save to> [reset/fast]")
 		print_info("Example: python3 "+sys.argv[0]+" 6351613231561 account.py dump_fav_group")
 		print_info("Optional args: reset/fast. Reset - resets dumping, fast - faster algo, but may miss posts")
 		print()
-		exit()
+		os_exit(0)
 
 	print()
+
+	atexit.register(cleanup)
 
 	os.makedirs(DIRECTORY+"json", exist_ok=True)
 	os.makedirs(DIRECTORY+"medias", exist_ok=True)
@@ -775,16 +826,18 @@ if __name__ == "__main__":
 		try:
 			with open(saved_group_id_path) as f:
 				GROUP_ID = f.read().strip()
+		except KeyboardInterrupt:
+			os_exit(0)
 		except:
 			print_error("No saved group id. Please specify in command line args.")
-			exit()
+			os_exit(0)
 	
 	if os.path.exists(saved_group_id_path):
 		with open(saved_group_id_path) as f:
 			saved_group_id = f.read().strip()
 			if saved_group_id != GROUP_ID.strip():
 				print_error("Group id mismatch! "+color(GROUP_ID + " =/= " + saved_group_id, colors.RED))
-				exit()
+				os_exit(0)
 
 	with open(saved_group_id_path, "w+") as f:
 		f.write(GROUP_ID)
@@ -839,7 +892,7 @@ if __name__ == "__main__":
 					break
 				except KeyboardInterrupt:
 					print_info("ctrl+c pressed\n")
-					os._exit(0)
+					os_exit(0)
 				except ParseException as e:
 					nowtime += 180
 					print_error("Parse exception, retry. Sleeping for 10 secs.")
@@ -855,4 +908,4 @@ if __name__ == "__main__":
 				f.write(str(nowtime))
 	except KeyboardInterrupt:
 		print_info("ctrl+c pressed\n")
-		os._exit(0)
+		os_exit(0)
